@@ -1,0 +1,38 @@
+# Phase 1 異常系: primary を障害注入サーバに差し替える。fallback は実 Bedrock のまま。
+#
+# エージェント側 (agents/) は一切変更しない。読み込む設定ファイルを切り替えるだけで
+# 障害を注入できることが、判定基準3（agents/ のコード差分ゼロ）の前提になる。
+#
+#   LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=rate_limit docker compose up -d
+#
+# 限界（design.md 3.4）: primary が Bedrock ではなく OpenAI 互換エンドポイントになるため、
+# 厳密には Bedrock 固有のエラー応答を再現しているわけではない。当該シナリオでの primary の
+# 役割は「制御された形で失敗すること」だけなので、検証したい対象は成立する。
+
+model_list:
+  # ── primary: 障害注入サーバ（FAULT_MODE に応じて 429 / 500 / timeout を返す）──
+  - model_name: sre-agent-model
+    litellm_params:
+      model: openai/fault-injector
+      api_base: http://fault-injector:8080/v1
+      api_key: dummy-key-not-used
+    model_info:
+      id: primary-fault-injector
+
+  # ── fallback: オハイオエンドポイント / US 圏内で推論（実 Bedrock）──
+  - model_name: sre-agent-model-fallback
+    litellm_params:
+      model: bedrock/us.anthropic.claude-sonnet-4-6
+      aws_region_name: us-east-2
+      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
+      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
+    model_info:
+      id: fallback-us
+
+router_settings:
+  fallbacks: [{ "sre-agent-model": ["sre-agent-model-fallback"] }]
+  num_retries: 0
+  timeout: 30
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

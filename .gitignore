@@ -1,0 +1,42 @@
+# ── 秘密情報 ───────────────────────────────────────────
+# .env.example だけは追跡する
+.env
+.env.*
+!.env.example
+.envrc
+credentials
+*.pem
+*.key
+
+# AWS / ngrok (Phase 4)
+.aws/
+ngrok.yml
+.ngrok2/
+
+# ── Python ────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+htmlcov/
+
+# ── 実行時の生成物 ──────────────────────────────────────
+*.log
+logs/
+
+# ── エディタ / OS ───────────────────────────────────────
+.DS_Store
+._*
+.idea/
+.vscode/
+
+# ── Claude Code のローカル設定 ───────────────────────────
+.claude/settings.local.json

@@ -1,0 +1,45 @@
+# Phase 1 正常系: 同一モデル claude-sonnet-4-6 を 2 つの地理圏で使う。
+#
+#   primary  : 東京エンドポイント + jp. プロファイル → 日本国内で推論
+#   fallback : オハイオエンドポイント + us. プロファイル → US 圏内で推論
+#
+# Bedrock の Claude は Claude 3 Haiku を除き推論プロファイル経由でしか呼べないため、
+# 障害単位はリージョンではなく地理圏になる（docs/decisions.md D-008）。
+#
+# エージェントから見えるのは model_name: sre-agent-model のみ。
+# 2 つのデプロイに別々の model_name を与えているのは意図的で、同一名にまとめると
+# LiteLLM がロードバランシング対象として扱い、通常時からリクエストが分散して
+# 「primary が応答した / fallback に切り替わった」を一意に観測できなくなるため。
+# 詳細は docs/phases/phase1-litellm/design.md 3.2 を参照。
+
+model_list:
+  # ── primary: 東京エンドポイント / 日本国内で推論 ──────────
+  - model_name: sre-agent-model
+    litellm_params:
+      model: bedrock/jp.anthropic.claude-sonnet-4-6
+      aws_region_name: ap-northeast-1
+      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
+      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
+    model_info:
+      id: primary-jp
+
+  # ── fallback: オハイオエンドポイント / US 圏内で推論 ───────
+  - model_name: sre-agent-model-fallback
+    litellm_params:
+      model: bedrock/us.anthropic.claude-sonnet-4-6   # primary と同一モデル
+      aws_region_name: us-east-2
+      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
+      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
+    model_info:
+      id: fallback-us
+
+router_settings:
+  fallbacks: [{ "sre-agent-model": ["sre-agent-model-fallback"] }]
+  # num_retries: 0 がベースライン。同一デプロイへの再試行を止めることで、
+  # 成功 = フォールバック発火 と一意に断定できるようにする（design.md 3.3）。
+  # F-04 では意図的に 2 に変更してリトライとフォールバックの順序を確認する。
+  num_retries: 0
+  timeout: 30
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

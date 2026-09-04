@@ -1,0 +1,55 @@
+# PoC 用の依存サービス。
+#
+#   正常系:  docker compose up -d
+#   異常系:  LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=rate_limit docker compose up -d
+#
+# エージェント本体 (agents/) はホストの venv から実行する。
+
+services:
+  # ── 第1層: LiteLLM Proxy ─────────────────────────────
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: safety-net-litellm
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm:/app/litellm:ro
+    command:
+      - "--config"
+      - "/app/litellm/${LITELLM_CONFIG_FILE:-config.yaml}"
+      - "--port"
+      - "4000"
+      - "--detailed_debug"   # フォールバック発火をログで追うため
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+    depends_on:
+      - fault-injector
+
+  # ── 障害注入サーバ（異常系でのみ参照される）──────────────
+  fault-injector:
+    image: python:3.12-slim
+    container_name: safety-net-fault-injector
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./mocks:/app:ro
+    working_dir: /app
+    command: ["python", "fault_injector.py"]
+    environment:
+      FAULT_MODE: ${FAULT_MODE:-server_error}
+      FAULT_DELAY_SECONDS: ${FAULT_DELAY_SECONDS:-45}
+      PORT: "8080"
+
+  # ── 第3層: OPA（Phase 3 以降。既定では起動しない）──────────
+  opa:
+    image: openpolicyagent/opa:latest
+    container_name: safety-net-opa
+    profiles: ["phase3"]
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./opa:/policies:ro
+    command: ["run", "--server", "--addr", "0.0.0.0:8181", "/policies"]

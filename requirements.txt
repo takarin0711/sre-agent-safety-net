@@ -1,0 +1,8 @@
+# エージェント本体 (第1層クライアント / 第2層)
+openai>=1.40
+pydantic>=2.7
+httpx>=0.27
+python-dotenv>=1.0
+
+# エスカレーション層 (Phase 4 以降)
+slack-bolt>=1.18
