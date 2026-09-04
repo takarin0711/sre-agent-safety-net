@@ -40,6 +40,9 @@ router_settings:
   # F-04 では意図的に 2 に変更してリトライとフォールバックの順序を確認する。
   num_retries: 0
   timeout: 30
+  # デプロイが cooldown 対象になるまでの失敗回数としきい値。
+  allowed_fails: 2
+  cooldown_time: 30
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

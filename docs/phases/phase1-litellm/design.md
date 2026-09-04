@@ -94,7 +94,8 @@ router_settings:
   fallbacks: [{"sre-agent-model": ["sre-agent-model-fallback"]}]
   num_retries: 0
   timeout: 30
-  # cooldown_time / allowed_fails は F-05 で調整する
+  allowed_fails: 2      # このデプロイを cooldown させるまでの許容失敗回数
+  cooldown_time: 30     # cooldown 期間（秒）。F-05 のフェイルバック観測時間に直結する
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
@@ -116,7 +117,8 @@ LiteLLM には「同じデプロイに再試行する」機構と「別のデプ
 | `num_retries` | 同一デプロイへの再試行回数 | **0** | 0 にすることで、成功＝フォールバック発火と一意に断定できる |
 | `fallbacks` | 別デプロイへの切り替え | primary → fallback | 検証対象そのもの |
 | `timeout` | 1リクエストの上限秒数 | 30 | タイムアウト系（F-03）の発火条件を明確にする |
-| `cooldown_time` | 失敗したデプロイを除外する時間 | 既定値を確認後に決定 | F-05（フェイルバック）で使用 |
+| `allowed_fails` | デプロイを cooldown 対象にするまでの許容失敗回数 | **2** | F-01〜F-03 が単発の障害注入である想定に対し、確実に cooldown へ入れるための仮置き値。実測して妥当性を見直す |
+| `cooldown_time` | 失敗したデプロイを除外する時間（秒） | **30** | F-05（フェイルバック）で「どれだけ待てば primary に戻るか」を観測する基準値として仮置き |
 
 ベースラインは `num_retries: 0` で組み、**F-04 で意図的に `num_retries: 2` に変更**して
 「リトライ → それでも失敗 → フォールバック」の順序が期待どおりかを別途確認する。
@@ -209,7 +211,8 @@ F-04 と F-05 は `router_settings` を変更するため、**ベースライン
    Sonnet 5 は東京に `apac.` プロファイルが無いことが判明した。フェイルオーバーの単位を再検討中。
 2. **応答したデプロイの特定方法**（第6章の表）。
 3. ~~**`mocks/` ディレクトリをルートに追加してよいか。**~~ → 承認済み（[D-006](../../decisions.md)）。
-4. **`cooldown_time` の既定値**と、F-05 で待つべき時間。
+4. ~~**`cooldown_time` の既定値**と、F-05 で待つべき時間。~~ → `allowed_fails: 2` / `cooldown_time: 30`（秒）で仮置き。
+   実測して F-05 の結果とともに result.md で妥当性を見直す。
 5. **追加レイテンシの合格ライン**（仮置き 5 秒の妥当性）。
 6. ~~**AWS 認証方式**~~ → 環境変数のアクセスキーで仮置き（承認済み）。
    `AWS_SESSION_TOKEN` も compose から渡せるようにしてあるため、SSO の一時クレデンシャルにも対応可能。
