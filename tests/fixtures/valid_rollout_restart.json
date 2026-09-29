@@ -1,0 +1,9 @@
+{
+  "action_id": "act-0001",
+  "environment": "production",
+  "operation": "kubectl_rollout_restart",
+  "target": {"kind": "deployment", "name": "payment-api", "namespace": "prod"},
+  "replicas": null,
+  "reason": "Pod が CrashLoopBackOff のため Deployment を再起動して復旧を試みる",
+  "dry_run": true
+}

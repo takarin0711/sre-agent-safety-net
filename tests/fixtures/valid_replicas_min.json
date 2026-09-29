@@ -1,0 +1,9 @@
+{
+  "action_id": "act-0004",
+  "environment": "staging",
+  "operation": "kubectl_scale",
+  "target": {"kind": "deployment", "name": "batch-worker", "namespace": "staging"},
+  "replicas": 0,
+  "reason": "バッチ処理を一時停止するためレプリカ数を 0 にする",
+  "dry_run": true
+}

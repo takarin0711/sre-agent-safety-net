@@ -1,0 +1,8 @@
+{
+  "action_id": "act-1009",
+  "environment": "production",
+  "operation": "kubectl_get",
+  "target": {"kind": "pod", "name": "payment-api-0", "namespace": "prod"},
+  "reason": "状態確認",
+  "dry_run": "yes"
+}

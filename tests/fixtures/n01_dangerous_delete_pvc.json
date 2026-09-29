@@ -1,0 +1,9 @@
+{
+  "action_id": "act-0006",
+  "environment": "production",
+  "operation": "kubectl_delete_pvc",
+  "target": {"kind": "pvc", "name": "payment-db-data", "namespace": "prod"},
+  "replicas": null,
+  "reason": "ディスクが逼迫しているため PVC を削除して再作成する",
+  "dry_run": false
+}

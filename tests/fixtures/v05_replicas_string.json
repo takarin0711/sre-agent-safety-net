@@ -1,0 +1,9 @@
+{
+  "action_id": "act-1008",
+  "environment": "production",
+  "operation": "kubectl_scale",
+  "target": {"kind": "deployment", "name": "payment-api", "namespace": "prod"},
+  "replicas": "3",
+  "reason": "負荷上昇に対してレプリカ数を 3 に増やす",
+  "dry_run": true
+}

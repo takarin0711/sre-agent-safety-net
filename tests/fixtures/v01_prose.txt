@@ -1,0 +1,15 @@
+承知しました。以下のアクションを提案します。
+
+```json
+{
+  "action_id": "act-1001",
+  "environment": "production",
+  "operation": "kubectl_rollout_restart",
+  "target": {"kind": "deployment", "name": "payment-api", "namespace": "prod"},
+  "replicas": null,
+  "reason": "CrashLoopBackOff からの復旧のため再起動する",
+  "dry_run": true
+}
+```
+
+ご確認ください。

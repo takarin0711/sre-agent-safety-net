@@ -1,0 +1,8 @@
+{
+  "action_id": "act-1012",
+  "environment": "production",
+  "operation": "kubectl_drain",
+  "target": {"kind": "node", "name": "ip-10-0-1-23", "namespace": "prod"},
+  "reason": "ノードを退避させる",
+  "dry_run": true
+}

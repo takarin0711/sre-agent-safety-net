@@ -1,0 +1,8 @@
+{
+  "action_id": "act-1007",
+  "environment": "production",
+  "operation": "kubectl_scale",
+  "target": {"kind": "deployment", "name": "payment-api", "namespace": "prod"},
+  "reason": "負荷上昇に対してスケールアウトする",
+  "dry_run": true
+}

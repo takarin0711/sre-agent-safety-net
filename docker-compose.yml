@@ -1,7 +1,9 @@
 # PoC 用の依存サービス。
 #
 #   正常系:  docker compose up -d
-#   異常系:  LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=rate_limit docker compose up -d
+#   異常系 (第1層): LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=rate_limit docker compose up -d
+#   異常系 (第2層): LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=malformed \
+#                   FAULT_FIXTURE=v01_prose docker compose up -d
 #
 # エージェント本体 (agents/) はホストの venv から実行する。
 
@@ -36,11 +38,17 @@ services:
       - "8080:8080"
     volumes:
       - ./mocks:/app:ro
+      # 壊れた content の元ネタ。単体検証 (pytest) と同じ fixture を共用する。
+      # /app は :ro なので、その下にマウントポイントを作れない。独立したパスに置く。
+      - ./tests/fixtures:/fixtures:ro
     working_dir: /app
     command: ["python", "fault_injector.py"]
     environment:
       FAULT_MODE: ${FAULT_MODE:-server_error}
       FAULT_DELAY_SECONDS: ${FAULT_DELAY_SECONDS:-45}
+      # FAULT_MODE=malformed のときだけ参照される。予約名 null_content は content: null
+      FAULT_FIXTURE: ${FAULT_FIXTURE:-v01_prose}
+      FAULT_FIXTURE_DIR: /fixtures
       PORT: "8080"
 
   # ── 第3層: OPA（Phase 3 以降。既定では起動しない）──────────
