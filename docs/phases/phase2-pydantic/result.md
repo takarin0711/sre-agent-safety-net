@@ -1,4 +1,4 @@
-# Phase 2 検証結果: 第2層 Pydantic による構造保証
+# Phase 2 検証結果: 第2層 JSON Validator による構造保証
 
 > 実行後に記入する。設計は [design.md](design.md) を参照（判定基準は書き換えない）。
 

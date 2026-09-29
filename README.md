@@ -20,7 +20,7 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
        └──────────────────────────┬───────────────────────────┘
                                   │ LLM 出力 (JSON)
        ┌──────────────────────────▼───────────────────────────┐
-       │ 第2層: 出力・構造層  Pydantic                         │  構造保証
+       │ 第2層: 出力・構造層  JSON Validator                   │  構造保証
        │  スキーマ違反を ValidationError として確定検知         │
        └──────────────────────────┬───────────────────────────┘
                                   │ 検証済みアクション
@@ -40,7 +40,7 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 | 層 | 責務 | 実装 | 失敗時の挙動 |
 | --- | --- | --- | --- |
 | 第1層 | LLM 呼び出しの可用性 | LiteLLM Proxy | サブモデルへ自動フェイルオーバー（エージェントは無自覚） |
-| 第2層 | LLM 出力の構造保証 | Pydantic | `ValidationError` → 例外ハンドラ → Slack へハンドオフ |
+| 第2層 (JSON Validator) | LLM 出力の構造保証 | Pydantic v2 | `ValidationError` → 例外ハンドラ → Slack へハンドオフ |
 | 第3層 | 実行可否の決定的判定 | OPA / Rego | `allow: false` + 拒否理由 → Slack へ承認依頼 |
 | エスカレーション | Human-in-the-loop | Slack Bolt (Block Kit) | 人間の承認で再開、却下で中断 |
 
@@ -54,7 +54,7 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 ├── requirements.txt          # エージェント側の依存
 ├── requirements-dev.txt      # テスト・開発用の依存
 ├── .env.example              # 必要な環境変数のテンプレート
-├── agents/                   # エージェント本体 & 第2層 (Pydantic。インプロセスのライブラリ)
+├── agents/                   # エージェント本体 & 第2層 (JSON Validator。インプロセスのライブラリ)
 │   ├── main.py
 │   ├── schemas.py            #   層間インターフェース (ProposedAction / EscalationEvent)
 │   └── validation.py         #   第2層の唯一の入口 (validate_action)
@@ -86,7 +86,7 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 | フェーズ | 検証対象 | 正常系シナリオ | 異常系・コールバック検証 | 判定基準 | 状態 |
 | --- | --- | --- | --- | --- | --- |
 | Phase 1 | 第1層 (LiteLLM) | LiteLLM 経由で通常プロンプトを送受信できる | プライマリ API を停止、または 429/500 エラーを模擬発生させる | 自動でサブモデルへフェイルオーバーし、エージェント側に通信エラーを返さない | **完了**（[結果](docs/phases/phase1-litellm/result.md)） |
-| Phase 2 | 第2層 (Pydantic) | 正常な JSON フォーマットが型検証を通過する | 自然言語混入、クォート閉じ漏れ、必須フィールド欠落 JSON を入力する | `ValidationError` を確定検知し、即座に例外ハンドラへハンドオフされる | 設計完了（[設計](docs/phases/phase2-pydantic/design.md)） |
+| Phase 2 | 第2層 (JSON Validator) | 正常な JSON フォーマットが型検証を通過する | 自然言語混入、クォート閉じ漏れ、必須フィールド欠落 JSON を入力する | `ValidationError` を確定検知し、即座に例外ハンドラへハンドオフされる | 設計完了（[設計](docs/phases/phase2-pydantic/design.md)） |
 | Phase 3 | 第3層 (OPA) | 参照系コマンド（`kubectl get` 等）が `allow: true` になる | 破壊的操作（`kubectl delete` 等）を指示した JSON を入力する | OPA で `allow: false` と判定され、実行権限が確定的に拒否される | 未着手 |
 | Phase 4 | エスカレーション機構 (Slack Handoff 単体) | ダミーのエラー JSON を送信し、Slack 上に Block Kit UI が正しく表示される | Slack 上で「手動で承認して実行」や「却下」ボタンを実際に押下する | ボタン押下時のイベント（Interactivity payload）をアプリ側で正しく受信・パースできる | 未着手 |
 | Phase 5 | E2E (全体統合テスト) | タスクが AI の自律判断から実行まで全自動で完了する | Phase 1〜3 の各層で意図的に異常系イベントを発生させる | 各層に応じた Slack 通知が届き、人間がボタンを押すことで処理が安全に再開・中断される | 未着手 |
@@ -177,7 +177,21 @@ LiteLLM Router の cooldown 状態はプロセス内メモリに残るため、�
 > モデルアクセスは調査済み（[調査結果](docs/phases/phase1-litellm/result.md) / [D-008](docs/decisions.md)）。
 > AWS クレデンシャルを `.env` に設定すればそのまま実行できる。
 
-### Phase 2〜5
+### Phase 2 (JSON Validator)
+
+設計は確定済み（[design.md](docs/phases/phase2-pydantic/design.md)）。実装はこれから。
+第2層はエージェントと同一プロセスのライブラリなので、追加のサービス起動は不要。
+
+```bash
+pytest                                                    # V 系（壊れた LLM 出力の検知）
+python -m agents.main --incident "本番の payment-api の Pod が CrashLoopBackOff"
+
+# 経路検証（R-01）: 第1層は 200 を返し、壊れているのは content だけ
+LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=malformed FAULT_FIXTURE=v01_prose \
+  docker compose up -d
+```
+
+### Phase 3〜5
 
 （未着手）
 

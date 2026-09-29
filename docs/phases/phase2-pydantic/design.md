@@ -1,12 +1,16 @@
-# Phase 2 設計: 第2層 Pydantic による構造保証
+# Phase 2 設計: 第2層 JSON Validator による構造保証
 
 > このドキュメントは**着手前**に確定させるもの。検証後に判定基準を書き換えない。
 > 予想と異なる結果になった場合は [result.md](result.md) の「考察」に記録する。
+>
+> 層は役割名 **JSON Validator** で呼ぶ。実装は Pydantic v2（[D-013](../../decisions.md)）。
+> 以下で「Pydantic」と書いてあるのは、実装固有の挙動を指す箇所だけである。
 
 関連: [D-002](../../decisions.md#d-002-ポリシー判定を-pydantic-ではなく-opa-に置く) 構造検証と権限判定の分離 /
 [D-010](../../decisions.md) 第2層はインプロセスのライブラリ /
 [D-011](../../decisions.md) 構造化出力の強制を第2層の代替としない /
 [D-012](../../decisions.md) 自動修復リトライを入れない /
+[D-013](../../decisions.md) 層の呼称 /
 [D-009](../../decisions.md) エビデンスの2系統化（第2層では適用されない理由を第6章に記す）
 
 ---
@@ -63,8 +67,9 @@
 第2層は**エージェントと同一プロセスで動くライブラリ**であり、独立したサービスではない。
 `docker-compose.yml` に第2層のコンテナは存在しない。この点は設計上の帰結が大きいので明記しておく。
 
-| | 第1層 (LiteLLM) | 第2層 (Pydantic) | 第3層 (OPA) |
+| | 第1層 (LiteLLM) | 第2層 (JSON Validator) | 第3層 (OPA) |
 | --- | --- | --- | --- |
+| 実装 | LiteLLM Proxy | Pydantic v2 | OPA / Rego |
 | 実行形態 | 別プロセス / 別コンテナ | **同一プロセス・ライブラリ** | 別プロセス / 別コンテナ |
 | 呼び出し | HTTP (OpenAI 互換) | 関数呼び出し | HTTP (`POST /v1/data/...`) |
 | 「層自体のダウン」 | ありうる | **原理的に無い**（エージェントが動いていれば動く） | ありうる（単一障害点） |
@@ -159,7 +164,7 @@ class ProposedAction(BaseModel):
 
 ```python
 class EscalationEvent(BaseModel):
-    layer: Literal["layer1_litellm", "layer2_pydantic", "layer3_opa"]
+    layer: Literal["layer1_litellm", "layer2_json_validator", "layer3_opa"]
     reason: str                       # 人間が読んで判断できる文言
     errors: list[dict] = []           # ValidationError.errors() をそのまま格納
     raw_output: str | None = None     # LLM の生出力（何が来たのかを人間が見る）

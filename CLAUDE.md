@@ -15,7 +15,8 @@ SRE エージェント（LLM）を多層防御で囲い込む **PoC 検証用リ
 - Python 3.12 / venv + pip（`requirements.txt`, `requirements-dev.txt`）— uv や Poetry は使わない
 - エージェント本体: 素の Python + **OpenAI SDK**（LiteLLM Proxy に OpenAI 互換エンドポイントとして接続）
   - LangGraph 等のエージェントフレームワークは導入しない。層の責務と検証結果を曖昧にしないため。
-- 第2層: Pydantic v2
+- 第2層 **JSON Validator**: 実装は Pydantic v2。エージェントと同一プロセスのライブラリとして読み込む
+  （層は役割名で呼び、実装名では呼ばない。理由は [D-013](docs/decisions.md)）
 - 第3層: OPA（Rego）。エージェントからは HTTP（`POST /v1/data/...`）で問い合わせる
 - エスカレーション: Slack Bolt for Python（Block Kit + Interactivity）
 - 依存サービスは Docker Compose で起動
@@ -29,7 +30,9 @@ pip install -r requirements.txt -r requirements-dev.txt
 
 # 依存サービス
 docker compose up -d              # 正常系（両リージョンとも実 Bedrock）
-LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=rate_limit docker compose up -d   # 異常系
+LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=rate_limit docker compose up -d   # 異常系 (第1層)
+LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=malformed FAULT_FIXTURE=v01_prose \
+  docker compose up -d            # 異常系 (第2層 / R-01)。200 を返し content だけ壊す
 docker compose restart litellm    # シナリオを切り替えるたびに必須（Router の cooldown を初期化）
 docker compose logs fault-injector  # primary が実際に何回叩かれたかの裏取り
 docker compose down
@@ -40,11 +43,12 @@ aws configure export-credentials --profile <PROFILE> --format env-no-export >> .
 docker compose up -d              # コンテナを作り直さないと新しい値が反映されない
 
 # エージェント実行
-python -m agents.main --prompt "hello"
+python -m agents.main --prompt "hello"                            # 第2層を通らない (Phase 1 の経路)
 python -m agents.main --prompt "hello" --repeat 20 --interval 15   # F-05 フェイルバック観測
+python -m agents.main --incident "本番の payment-api の Pod が CrashLoopBackOff"   # 第2層を通る (Phase 2)
 
 # テスト
-pytest                            # Python 側 (第2層など)
+pytest                            # 第2層 (JSON Validator) の単体検証
 opa test opa/                     # Rego ポリシーの単体テスト
 
 # 疎通（プロセスの死活確認のみ。推論が通る保証にはならない）
@@ -55,7 +59,10 @@ curl -s http://localhost:8181/health
 ## コーディング規約
 
 - 型ヒントは必須。層をまたぐデータ構造は必ず Pydantic モデルとして `agents/schemas.py` に定義する。
-- 層の境界を越えるデータは JSON。層の実装は互いに import し合わない（HTTP かスキーマ経由で疎結合を保つ）。
+  第2層のモデルには `strict=True` と `extra="forbid"` を必ず付ける（既定の lax モードは `"3"` を `3` に
+  黙って変換するため、外すと型不一致を検知できなくなる）。
+- 層の境界を越えるデータは JSON。**第1層・第3層の実装コードは import しない**（HTTP で疎結合を保つ）。
+  第2層は同一プロセスのライブラリなので import して使う。この線引きは [D-010](docs/decisions.md)。
 - 例外は握り潰さない。各層の失敗は「検知して Slack へハンドオフする」ことが検証対象そのものなので、
   `except Exception: pass` のようなコードは PoC の目的を破壊する。
 - ログは各層の判定結果（フェイルオーバー発火・`ValidationError`・`allow` の値と理由）が
@@ -88,6 +95,27 @@ curl -s http://localhost:8181/health
 - **ヘルスチェックは可用性の指標にならない。** 推論が全滅していても `unhealthy_count: 0` が返る。
   各層の健全性は実リクエストの成否で測る。
 - **エビデンスのファイル名は使い回さない。** Phase 1 でブロッカー時のログを後の成功ログで上書きした。
+
+## Phase 2 の前提（設計確定・実装前）
+
+- 第2層は役割名 **JSON Validator**、実装は Pydantic v2。**エージェントと同一プロセスのライブラリ**であり、
+  HTTP 境界を持たず、独立したコンテナも無い（[D-010](docs/decisions.md) / [D-013](docs/decisions.md)）。
+  したがって第2層には「層自体のダウン」という障害モードが存在しない。第1層・第3層との非対称性。
+- **全モデルに `strict=True` と `extra="forbid"` を付ける。** 既定の lax モードは `"3"` → `3`、
+  `"yes"` → `True` を黙って変換するため、外すと型不一致シナリオ（V-05）が検証を通過し判定基準が崩れる。
+- **LLM 出力を修復しない。** コードフェンス剥がしなどの前処理も、`ValidationError` からの
+  再プロンプトも入れない（[D-012](docs/decisions.md)）。修復すると最終結果が確率的になり、
+  「決定的に検知できる」という検証対象そのものが消える。
+- **構造化出力の強制（`response_format` / tool use）はベースラインに入れない**（[D-011](docs/decisions.md)）。
+  壊れた入力が来ないと検知能力が測れない。強制との比較は C-01 として別途実施する。
+- 異常系は「層の障害」ではなく**入力の異常**の注入。単体 fixture / `fault_injector` 経由 / 実 LLM の
+  3 経路に分離し、**非決定的な実 LLM 由来のシナリオは判定基準に使わない**。
+- **構造的に正しく意味的に危険な入力は第2層を通過させる**（N-01）。これは欠陥ではなく責務境界の証明で、
+  ここで止めると第2層がポリシー判定を始めたことになる（[D-002](docs/decisions.md) 違反）。
+- プロンプトには**出力スキーマは書く**（インターフェースの提示）が、**「危険な操作を避けよ」は書かない**
+  （書いた時点でその防御が確率的になる。第3層の責務）。
+
+詳細は [design.md](docs/phases/phase2-pydantic/design.md)、結果は [result.md](docs/phases/phase2-pydantic/result.md)（未実施）。
 
 ## 注意点
 

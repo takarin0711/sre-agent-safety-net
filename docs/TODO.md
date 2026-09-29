@@ -14,7 +14,7 @@
 | フェーズ | 設計 | 実装 | 実行 |
 | --- | --- | --- | --- |
 | Phase 1 (LiteLLM) | 完了 | 完了 | **完了（合格）** |
-| Phase 2 (Pydantic) | **完了** | 未着手 | 未着手 |
+| Phase 2 (JSON Validator) | **完了** | 未着手 | 未着手 |
 | Phase 3 (OPA) | 未着手 | 未着手 | 未着手 |
 | Phase 4 (Slack) | 未着手 | 未着手 | 未着手 |
 | Phase 5 (E2E) | 未着手 | 未着手 | 未着手 |
@@ -105,7 +105,7 @@
 
 いずれも着手時に `design.md` を先に書く。
 
-### Phase 2 (Pydantic)
+### Phase 2 (JSON Validator)
 
 design.md は確定済み。実施手順の詳細は [design.md 第8章](phases/phase2-pydantic/design.md)。
 
