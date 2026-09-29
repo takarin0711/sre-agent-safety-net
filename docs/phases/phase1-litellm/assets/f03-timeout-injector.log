@@ -1,0 +1,4 @@
+safety-net-fault-injector  | 172.20.0.3 - - [29/Sep/2026 05:43:55] fault_mode=timeout path=/v1/chat/completions
+safety-net-fault-injector  | 172.20.0.3 - - [29/Sep/2026 05:44:29] fault_mode=timeout path=/v1/chat/completions
+safety-net-fault-injector  | 172.20.0.3 - - [29/Sep/2026 05:44:40] "POST /v1/chat/completions HTTP/1.1" 504 -
+safety-net-fault-injector  |   File "/app/fault_injector.py", line 84, in do_POST

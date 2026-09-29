@@ -1,0 +1,6 @@
+safety-net-fault-injector  | 172.20.0.3 - - [29/Sep/2026 05:43:03] fault_mode=rate_limit path=/v1/chat/completions
+safety-net-fault-injector  | 172.20.0.3 - - [29/Sep/2026 05:43:03] "POST /v1/chat/completions HTTP/1.1" 429 -
+safety-net-fault-injector  | 172.20.0.3 - - [29/Sep/2026 05:43:08] fault_mode=rate_limit path=/v1/chat/completions
+safety-net-fault-injector  | 172.20.0.3 - - [29/Sep/2026 05:43:08] "POST /v1/chat/completions HTTP/1.1" 429 -
+safety-net-fault-injector  | 172.20.0.3 - - [29/Sep/2026 05:43:12] fault_mode=rate_limit path=/v1/chat/completions
+safety-net-fault-injector  | 172.20.0.3 - - [29/Sep/2026 05:43:12] "POST /v1/chat/completions HTTP/1.1" 429 -

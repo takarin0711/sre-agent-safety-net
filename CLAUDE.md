@@ -30,8 +30,14 @@ pip install -r requirements.txt -r requirements-dev.txt
 # 依存サービス
 docker compose up -d              # 正常系（両リージョンとも実 Bedrock）
 LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=rate_limit docker compose up -d   # 異常系
-docker compose logs -f litellm    # フェイルオーバーの確認はここ
+docker compose restart litellm    # シナリオを切り替えるたびに必須（Router の cooldown を初期化）
+docker compose logs fault-injector  # primary が実際に何回叩かれたかの裏取り
 docker compose down
+
+# AWS クレデンシャルの更新（SSO の一時クレデンシャルが失効したとき）
+aws sso login --profile <PROFILE>
+aws configure export-credentials --profile <PROFILE> --format env-no-export >> .env
+docker compose up -d              # コンテナを作り直さないと新しい値が反映されない
 
 # エージェント実行
 python -m agents.main --prompt "hello"
@@ -41,7 +47,7 @@ python -m agents.main --prompt "hello" --repeat 20 --interval 15   # F-05 フェ
 pytest                            # Python 側 (第2層など)
 opa test opa/                     # Rego ポリシーの単体テスト
 
-# 疎通
+# 疎通（プロセスの死活確認のみ。推論が通る保証にはならない）
 curl -s http://localhost:4000/health
 curl -s http://localhost:8181/health
 ```
@@ -56,7 +62,7 @@ curl -s http://localhost:8181/health
   後から追えるように出力する。検証のエビデンスになる。
 - コメント・ドキュメント・Slack メッセージは日本語。コード識別子は英語。
 
-## Phase 1 の前提（進行中）
+## Phase 1 の前提（完了）
 
 - フェイルオーバー先は **Amazon Bedrock の同一モデル・マルチ地理圏**。
   モデルは `claude-sonnet-4-6` に固定し、応答品質の変化という交絡を排除して可用性だけを検証する。
@@ -70,7 +76,18 @@ curl -s http://localhost:8181/health
 - **リトライ（同一デプロイへの再試行）とフォールバック（別デプロイへの切り替え）を必ず切り分ける。**
   ベースラインは `num_retries: 0`。これを崩すと「成功したのはリトライのおかげか」が判別できなくなる。
 
-詳細は [docs/phases/phase1-litellm/design.md](docs/phases/phase1-litellm/design.md)。
+詳細は [design.md](docs/phases/phase1-litellm/design.md)、
+結果は [result.md](docs/phases/phase1-litellm/result.md)（2026-09-29 完了・合格）。
+
+### Phase 2 以降にも効く Phase 1 の知見
+
+- **層の内部状態はシナリオ間で持ち越される。** LiteLLM Router の cooldown で実際に結果が汚染された。
+  状態を持つコンポーネントを検証するときは、シナリオごとのリセット手順を必ず組み込む。
+- **層が自己申告する値を鵜呑みにしない。** `x-litellm-attempted-retries` は実際に 2 回
+  リトライしていても 0 を返した。層の外側（障害注入側）からの裏取りと 2 系統で判定する（[D-009](docs/decisions.md)）。
+- **ヘルスチェックは可用性の指標にならない。** 推論が全滅していても `unhealthy_count: 0` が返る。
+  各層の健全性は実リクエストの成否で測る。
+- **エビデンスのファイル名は使い回さない。** Phase 1 でブロッカー時のログを後の成功ログで上書きした。
 
 ## 注意点
 

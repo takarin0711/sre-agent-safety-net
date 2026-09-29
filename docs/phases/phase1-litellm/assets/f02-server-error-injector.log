@@ -1,0 +1,6 @@
+safety-net-fault-injector  | 172.20.0.3 - - [29/Sep/2026 05:43:31] fault_mode=server_error path=/v1/chat/completions
+safety-net-fault-injector  | 172.20.0.3 - - [29/Sep/2026 05:43:31] "POST /v1/chat/completions HTTP/1.1" 500 -
+safety-net-fault-injector  | 172.20.0.3 - - [29/Sep/2026 05:43:36] fault_mode=server_error path=/v1/chat/completions
+safety-net-fault-injector  | 172.20.0.3 - - [29/Sep/2026 05:43:36] "POST /v1/chat/completions HTTP/1.1" 500 -
+safety-net-fault-injector  | 172.20.0.3 - - [29/Sep/2026 05:43:40] fault_mode=server_error path=/v1/chat/completions
+safety-net-fault-injector  | 172.20.0.3 - - [29/Sep/2026 05:43:40] "POST /v1/chat/completions HTTP/1.1" 500 -

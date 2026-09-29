@@ -81,7 +81,7 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 
 | フェーズ | 検証対象 | 正常系シナリオ | 異常系・コールバック検証 | 判定基準 | 状態 |
 | --- | --- | --- | --- | --- | --- |
-| Phase 1 | 第1層 (LiteLLM) | LiteLLM 経由で通常プロンプトを送受信できる | プライマリ API を停止、または 429/500 エラーを模擬発生させる | 自動でサブモデルへフェイルオーバーし、エージェント側に通信エラーを返さない | **設計・実装完了 / 実行待ち** |
+| Phase 1 | 第1層 (LiteLLM) | LiteLLM 経由で通常プロンプトを送受信できる | プライマリ API を停止、または 429/500 エラーを模擬発生させる | 自動でサブモデルへフェイルオーバーし、エージェント側に通信エラーを返さない | **完了**（[結果](docs/phases/phase1-litellm/result.md)） |
 | Phase 2 | 第2層 (Pydantic) | 正常な JSON フォーマットが型検証を通過する | 自然言語混入、クォート閉じ漏れ、必須フィールド欠落 JSON を入力する | `ValidationError` を確定検知し、即座に例外ハンドラへハンドオフされる | 未着手 |
 | Phase 3 | 第3層 (OPA) | 参照系コマンド（`kubectl get` 等）が `allow: true` になる | 破壊的操作（`kubectl delete` 等）を指示した JSON を入力する | OPA で `allow: false` と判定され、実行権限が確定的に拒否される | 未着手 |
 | Phase 4 | エスカレーション機構 (Slack Handoff 単体) | ダミーのエラー JSON を送信し、Slack 上に Block Kit UI が正しく表示される | Slack 上で「手動で承認して実行」や「却下」ボタンを実際に押下する | ボタン押下時のイベント（Interactivity payload）をアプリ側で正しく受信・パースできる | 未着手 |
@@ -97,7 +97,11 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 
 - Python 3.12+
 - Docker / Docker Compose
-- LLM プロバイダの API キー（プライマリ・サブの 2 系統）
+- **AWS アカウント**（Bedrock。primary / fallback とも同一アカウントで、キーは 1 系統でよい）
+  - 対象リージョン（`ap-northeast-1` / `us-east-2`）で推論プロファイルが `ACTIVE` であること
+  - **Bedrock の Anthropic use case details form が提出済みであること。**
+    未提出だとプロファイルが `ACTIVE` でも全呼び出しが `NotFoundError` になる
+    （AWS コンソール → Bedrock → Model access。アカウント単位・反映に最大 15 分）
 
 ### 手順
 
@@ -109,15 +113,25 @@ pip install -r requirements.txt -r requirements-dev.txt
 
 # 2. 環境変数
 cp .env.example .env
-$EDITOR .env   # API キー等を設定
 
-# 3. 依存サービス起動 (LiteLLM Proxy / OPA)
+# 3. AWS クレデンシャル
+#    静的キーならそのまま .env に書く。SSO なら一時クレデンシャルを末尾に追記する。
+aws sso login --profile <PROFILE>
+aws configure export-credentials --profile <PROFILE> --format env-no-export >> .env
+
+# 4. 依存サービス起動 (LiteLLM Proxy / OPA)
 docker compose up -d
 
-# 4. 疎通確認
+# 5. 疎通確認（プロセスが生きているかの確認であり、推論が通る保証ではない）
 curl -s http://localhost:4000/health   # LiteLLM
 curl -s http://localhost:8181/health   # OPA
 ```
+
+> **`/health` は可用性の指標にはならない。** Phase 1 で、推論が全滅している状態でも
+> `unhealthy_count: 0` を返すことを実測した。実際に通るかは `python -m agents.main` で確かめる。
+
+> **SSO の一時クレデンシャルは数時間で失効する。** LiteLLM コンテナは起動時に環境変数を
+> 焼き込むため、更新後は `docker compose up -d` でコンテナを作り直さないと反映されない。
 
 ---
 
@@ -131,7 +145,8 @@ curl -s http://localhost:8181/health   # OPA
 primary は東京エンドポイントの `jp.` プロファイル（日本国内で推論）、fallback はオハイオエンドポイントの
 `us.` プロファイル（US 圏内で推論）。障害はモックサーバから 429 / 500 / timeout を返して注入する。
 
-設計: [docs/phases/phase1-litellm/design.md](docs/phases/phase1-litellm/design.md)
+設計: [docs/phases/phase1-litellm/design.md](docs/phases/phase1-litellm/design.md) /
+**結果: [docs/phases/phase1-litellm/result.md](docs/phases/phase1-litellm/result.md)**
 
 ```bash
 # P-01 正常系: 両リージョンとも実 Bedrock
@@ -140,13 +155,20 @@ python -m agents.main --prompt "hello"
 
 # F-01 異常系: primary が 429 を返す（FAULT_MODE=server_error / timeout も同様）
 LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=rate_limit docker compose up -d
+docker compose restart litellm        # ← 必須。Router の cooldown 状態を持ち越さない
 python -m agents.main --prompt "hello"
 
 # F-05 フェイルバック観測: 一定間隔で繰り返し、primary に戻る時点を見る
 python -m agents.main --prompt "hello" --repeat 20 --interval 15
 
-docker compose logs -f litellm                  # フォールバック発火の確認
+# どちらのデプロイが応答したかの確認（エージェントの構造化ログに x-litellm-* が出る）
+# 併せて primary が実際に叩かれたかを注入側で裏取りする
+docker compose logs fault-injector
 ```
+
+**シナリオを続けて実行するときは、毎回 `docker compose restart litellm` を挟むこと。**
+LiteLLM Router の cooldown 状態はプロセス内メモリに残るため、挟まないと
+「primary を一度も叩かずに fallback が応答する」状態になり、結果が汚染される（[D-009](docs/decisions.md)）。
 
 > モデルアクセスは調査済み（[調査結果](docs/phases/phase1-litellm/result.md) / [D-008](docs/decisions.md)）。
 > AWS クレデンシャルを `.env` に設定すればそのまま実行できる。
