@@ -6,12 +6,15 @@
 
 **Phase 1 は完了（2026-09-29）。** 7 シナリオすべてを実施し総合判定は合格。
 結果・考察・提言は [phases/phase1-litellm/result.md](phases/phase1-litellm/result.md)。
-次は **Phase 2（Pydantic）の design.md を書くところから**。
+
+**Phase 2 は design.md を確定済み（2026-09-29）。次は実装から。**
+設計は [phases/phase2-pydantic/design.md](phases/phase2-pydantic/design.md)、
+新たな設計判断は [D-010 / D-011 / D-012](decisions.md)。
 
 | フェーズ | 設計 | 実装 | 実行 |
 | --- | --- | --- | --- |
 | Phase 1 (LiteLLM) | 完了 | 完了 | **完了（合格）** |
-| Phase 2 (Pydantic) | 未着手 | 未着手 | 未着手 |
+| Phase 2 (Pydantic) | **完了** | 未着手 | 未着手 |
 | Phase 3 (OPA) | 未着手 | 未着手 | 未着手 |
 | Phase 4 (Slack) | 未着手 | 未着手 | 未着手 |
 | Phase 5 (E2E) | 未着手 | 未着手 | 未着手 |
@@ -104,10 +107,29 @@
 
 ### Phase 2 (Pydantic)
 
-- [ ] `docs/phases/phase2-pydantic/design.md` を書く
-- [ ] `agents/schemas.py` に層間インターフェースを定義（対象環境 / 操作種別 / 対象リソースを含む）
-- [ ] 壊れた JSON のケース集を用意（自然言語混入 / クォート抜け / 必須キー欠落）
-- [ ] pytest で単体テスト
+design.md は確定済み。実施手順の詳細は [design.md 第8章](phases/phase2-pydantic/design.md)。
+
+実装:
+
+- [x] `docs/phases/phase2-pydantic/design.md` を書く
+- [ ] `agents/schemas.py`（`ProposedAction` / `TargetResource` / enum / `EscalationEvent`）。
+      **全モデルに `strict=True` と `extra="forbid"` を付ける**（外すと判定基準1が崩れる）
+- [ ] `agents/validation.py`（`validate_action()` = 第2層の唯一の入口。`model_validate_json()` を使い、
+      失敗を単一の例外型に正規化する）
+- [ ] `agents/main.py` に `--incident` 経路を追加（**`--prompt` は変更しない** = Phase 1 の再現性を保つ）
+- [ ] `tests/fixtures/`（V-01〜V-08 + 正常系。構文が壊れているものは `.txt` にする）
+- [ ] `tests/test_layer2_validation.py`（V 系 + D-01 決定性 + N-01 責務境界）
+- [ ] `mocks/fault_injector.py` に `FAULT_MODE=malformed` を追加（既存 3 モードは変更しない）
+
+実行（単体 → 実 LLM の順。逆にすると落ちた原因の層が切り分けられない）:
+
+- [ ] V-01〜V-08 / P-02 を pytest で通す
+- [ ] D-01（10 回連続で同一判定）
+- [ ] P-01（実 LLM）→ 未決事項 4・5 の確認
+- [ ] L-01 レイテンシ実測（n ≥ 20）→ **`timeout` の再決定**（Phase 1 からの持ち越し）
+- [ ] R-01 経路検証（シナリオ切り替えごとに `docker compose restart litellm`）
+- [ ] N-01 限界（構造は正しいが危険な入力が**通過する**ことの確認）
+- [ ] R-02 / C-01（考察材料。判定基準には使わない）
 
 ### Phase 3 (OPA)
 
