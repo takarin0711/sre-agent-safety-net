@@ -39,7 +39,16 @@ router_settings:
   # 成功 = フォールバック発火 と一意に断定できるようにする（design.md 3.3）。
   # F-04 では意図的に 2 に変更してリトライとフォールバックの順序を確認する。
   num_retries: 0
-  timeout: 30
+  # timeout は「ワークロードごとに実測して決める」。Phase 2 の L-01 で再決定した。
+  #   Phase 1（「こんにちは」に 28 トークン）    : 1.17〜5.39 s (n=5)      → timeout: 30
+  #   Phase 2（構造化 JSON / reason 〜160 文字） : 3.36〜9.77 s (n=20)
+  #   Phase 2（同 / reason 〜850 文字）          : 10.69〜17.93 s (n=5)
+  # スキーマ上 reason は 1000 文字まで許容するため、正常時の裾はまだ伸びうる。
+  # 30 では実測最大の 1.7 倍しかなく、健全な primary を誤って殺してフォールバックを
+  # 誘発する危険がある。実測最大の約 3 倍を確保して 60 とする。
+  # 代償: 無応答型の障害の検知時間も 60 s になる（Phase 1 F-03 の構造的下限）。
+  # 根拠は docs/phases/phase2-pydantic/result.md の L-01。
+  timeout: 60
   # デプロイが cooldown 対象になるまでの失敗回数としきい値。
   allowed_fails: 2
   cooldown_time: 30

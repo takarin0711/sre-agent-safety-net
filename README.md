@@ -86,7 +86,7 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 | フェーズ | 検証対象 | 正常系シナリオ | 異常系・コールバック検証 | 判定基準 | 状態 |
 | --- | --- | --- | --- | --- | --- |
 | Phase 1 | 第1層 (LiteLLM) | LiteLLM 経由で通常プロンプトを送受信できる | プライマリ API を停止、または 429/500 エラーを模擬発生させる | 自動でサブモデルへフェイルオーバーし、エージェント側に通信エラーを返さない | **完了**（[結果](docs/phases/phase1-litellm/result.md)） |
-| Phase 2 | 第2層 (JSON Validator) | 正常な JSON フォーマットが型検証を通過する | 自然言語混入、クォート閉じ漏れ、必須フィールド欠落 JSON を入力する | `ValidationError` を確定検知し、即座に例外ハンドラへハンドオフされる | 設計完了（[設計](docs/phases/phase2-pydantic/design.md)） |
+| Phase 2 | 第2層 (JSON Validator) | 正常な JSON フォーマットが型検証を通過する | 自然言語混入、クォート閉じ漏れ、必須フィールド欠落 JSON を入力する | `ValidationError` を確定検知し、即座に例外ハンドラへハンドオフされる | **完了（合格）**（[設計](docs/phases/phase2-pydantic/design.md) / [結果](docs/phases/phase2-pydantic/result.md)） |
 | Phase 3 | 第3層 (OPA) | 参照系コマンド（`kubectl get` 等）が `allow: true` になる | 破壊的操作（`kubectl delete` 等）を指示した JSON を入力する | OPA で `allow: false` と判定され、実行権限が確定的に拒否される | 未着手 |
 | Phase 4 | エスカレーション機構 (Slack Handoff 単体) | ダミーのエラー JSON を送信し、Slack 上に Block Kit UI が正しく表示される | Slack 上で「手動で承認して実行」や「却下」ボタンを実際に押下する | ボタン押下時のイベント（Interactivity payload）をアプリ側で正しく受信・パースできる | 未着手 |
 | Phase 5 | E2E (全体統合テスト) | タスクが AI の自律判断から実行まで全自動で完了する | Phase 1〜3 の各層で意図的に異常系イベントを発生させる | 各層に応じた Slack 通知が届き、人間がボタンを押すことで処理が安全に再開・中断される | 未着手 |
@@ -179,8 +179,9 @@ LiteLLM Router の cooldown 状態はプロセス内メモリに残るため、�
 
 ### Phase 2 (JSON Validator)
 
-設計は確定済み（[design.md](docs/phases/phase2-pydantic/design.md)）。実装はこれから。
-第2層はエージェントと同一プロセスのライブラリなので、追加のサービス起動は不要。
+**完了（2026-09-29・合格）**。判定基準 1〜5 すべて合格（[result.md](docs/phases/phase2-pydantic/result.md)）。
+第2層はエージェントと同一プロセスのライブラリなので、追加のサービス起動は不要
+（`agents/schemas.py` + `agents/validation.py`）。
 
 ```bash
 pytest                                                    # V 系（壊れた LLM 出力の検知）

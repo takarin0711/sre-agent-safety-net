@@ -1,0 +1,11 @@
+Unable to find image 'openpolicyagent/opa:latest' locally
+latest: Pulling from openpolicyagent/opa
+38062775022f: Pulling fs layer
+9b01716e6aed: Pulling fs layer
+9b01716e6aed: Download complete
+9b01716e6aed: Pull complete
+38062775022f: Download complete
+38062775022f: Pull complete
+Digest: sha256:9e0010512cf405e66bfd7b89394f514e56fe0464822df0527e780344ab151450
+Status: Downloaded newer image for openpolicyagent/opa:latest
+"production / kubectl_logs / production"

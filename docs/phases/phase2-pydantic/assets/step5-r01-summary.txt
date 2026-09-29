@@ -1,0 +1,12 @@
+fixture                     第1層 model-id              fallbacks  第2層    exit  injector 応答数   errors
+---------------------------------------------------------------------------------------------------
+valid_scale                 primary-fault-injector    0          通過     0     1              -
+v01_prose                   primary-fault-injector    0          検知     1     1              json_invalid
+v02_unclosed_quote          primary-fault-injector    0          検知     1     1              json_invalid
+v03_truncated               primary-fault-injector    0          検知     1     1              json_invalid
+v04_scale_without_replicas  primary-fault-injector    0          検知     1     1              replicas_required_for_scale
+v05_replicas_string         primary-fault-injector    0          検知     1     1              int_type
+v06_operation_kubectl_drain primary-fault-injector    0          検知     1     1              enum
+v07_extra_key               primary-fault-injector    0          検知     1     1              extra_forbidden
+v08_empty                   primary-fault-injector    0          検知     1     1              empty_content
+null_content                primary-fault-injector    0          検知     1     1              empty_content

@@ -1,0 +1,19 @@
+pydantic=2.13.5 python=3.12.14
+入力                          model_validate_json       model_validate (python)
+------------------------------------------------------------------------------------
+replicas="3" (文字列)          int_type                  is_instance_of,is_instance_of,int_type   ← 差あり
+replicas=3.0 (float)        int_type                  is_instance_of,is_instance_of,int_type   ← 差あり
+replicas=3 (int)            通過                        is_instance_of,is_instance_of   ← 差あり
+dry_run="yes"               bool_type                 is_instance_of,is_instance_of,bool_type   ← 差あり
+dry_run="true"              bool_type                 is_instance_of,is_instance_of,bool_type   ← 差あり
+dry_run=1 (int)             bool_type                 is_instance_of,is_instance_of,bool_type   ← 差あり
+environment="production"    通過                        is_instance_of,is_instance_of   ← 差あり
+target=文字列                  model_type                is_instance_of,is_instance_of,model_type   ← 差あり
+reason=null                 string_type               is_instance_of,is_instance_of,string_type   ← 差あり
+action_id=123 (int)         string_type               string_type,is_instance_of,is_instance_of   ← 差あり
+
+── model_validate(dict) が落ちる内訳（strict モードの Python 入力）──
+  loc=('environment',) type=is_instance_of msg=Input should be an instance of Environment
+  loc=('operation',) type=is_instance_of msg=Input should be an instance of Operation
+── enum / ネストモデルを実インスタンスにすると通る ──
+  kubectl_get

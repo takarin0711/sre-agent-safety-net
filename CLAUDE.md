@@ -49,6 +49,7 @@ python -m agents.main --incident "本番の payment-api の Pod が CrashLoopBac
 
 # テスト
 pytest                            # 第2層 (JSON Validator) の単体検証
+python -m tests.dump_validation_errors <out.json>   # errors() の生 JSON をエビデンスとして保存
 opa test opa/                     # Rego ポリシーの単体テスト
 
 # 疎通（プロセスの死活確認のみ。推論が通る保証にはならない）
@@ -96,7 +97,7 @@ curl -s http://localhost:8181/health
   各層の健全性は実リクエストの成否で測る。
 - **エビデンスのファイル名は使い回さない。** Phase 1 でブロッカー時のログを後の成功ログで上書きした。
 
-## Phase 2 の前提（設計確定・実装前）
+## Phase 2 の前提（完了）
 
 - 第2層は役割名 **JSON Validator**、実装は Pydantic v2。**エージェントと同一プロセスのライブラリ**であり、
   HTTP 境界を持たず、独立したコンテナも無い（[D-010](docs/decisions.md) / [D-013](docs/decisions.md)）。
@@ -115,7 +116,24 @@ curl -s http://localhost:8181/health
 - プロンプトには**出力スキーマは書く**（インターフェースの提示）が、**「危険な操作を避けよ」は書かない**
   （書いた時点でその防御が確率的になる。第3層の責務）。
 
-詳細は [design.md](docs/phases/phase2-pydantic/design.md)、結果は [result.md](docs/phases/phase2-pydantic/result.md)（未実施）。
+詳細は [design.md](docs/phases/phase2-pydantic/design.md)、
+結果は [result.md](docs/phases/phase2-pydantic/result.md)（2026-09-29 完了・合格）。
+
+### Phase 3 以降にも効く Phase 2 の知見
+
+- **障害注入が効いていないと検証は「静かに正常系」になる。** injector が起動せず第1層が実 Bedrock に
+  フォールバックし、R-01 の全シナリオが終了コード 0 になった。異常系では「注入が届いたこと」を
+  層の外側から必ず確認する（[D-014](docs/decisions.md)）。**全部合格しているときほど疑う。**
+- **上位層の正しい挙動が下位層の障害注入を打ち消す。** 第1層のフォールバックは可用性としては正しく、
+  同時に「第2層に壊れた入力を届ける」意図を無効化する。層を重ねるほどこの干渉は起きやすい。
+- **strict モードは JSON 入力と Python 入力で挙動が違う。** `model_validate(dict)` は strict だと
+  enum に実インスタンスを要求し、素の文字列は `is_instance_of` で落ちる。
+  第2層の入口は必ず `model_validate_json()` を通す（`json.loads()` を挟まない）。
+- **`timeout` を決めるのは出力トークン数の上限であり、それはスキーマの `max_length` で決まる。**
+  スキーマを変えたら第1層の `timeout` を見直す（L-01 で 30 → 60 に再決定）。
+- **構造化出力の強制は「弱められたスキーマ」しか強制できない。** Bedrock は `minimum` / `maximum` /
+  `minLength` / `maxLength` / `pattern` を受け付けない。第2層のスキーマを正本とし、
+  強制側はそこから劣化させたコピーとして扱う。
 
 ## 注意点
 

@@ -1,0 +1,7 @@
+  reason 文字数 = 774  operation = kubectl_logs
+  reason 文字数 = 775  operation = kubectl_logs
+  reason 文字数 = 742  operation = kubectl_logs
+  reason 文字数 = 743  operation = kubectl_logs
+  reason 文字数 = 847  operation = kubectl_logs
+elapsed_sec = [10.692, 11.293, 14.198, 16.762, 17.932]  (max=17.93)
+validation ok=5 error=0

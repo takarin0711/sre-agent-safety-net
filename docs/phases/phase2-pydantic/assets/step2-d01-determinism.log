@@ -1,0 +1,26 @@
+# D-01 決定性: 別プロセスで 10 回実行し、errors() の内容が完全に一致するかを見る
+# 実行: python -m tests.dump_validation_errors <out>  を 10 回
+# date: 2026-09-29T08:21:37Z
+run=01 sha256=34f469923f1d52d1fd9ca693e3df85dd8932ca5de9c11ee9c61508690f7d0f92
+run=02 sha256=34f469923f1d52d1fd9ca693e3df85dd8932ca5de9c11ee9c61508690f7d0f92
+run=03 sha256=34f469923f1d52d1fd9ca693e3df85dd8932ca5de9c11ee9c61508690f7d0f92
+run=04 sha256=34f469923f1d52d1fd9ca693e3df85dd8932ca5de9c11ee9c61508690f7d0f92
+run=05 sha256=34f469923f1d52d1fd9ca693e3df85dd8932ca5de9c11ee9c61508690f7d0f92
+run=06 sha256=34f469923f1d52d1fd9ca693e3df85dd8932ca5de9c11ee9c61508690f7d0f92
+run=07 sha256=34f469923f1d52d1fd9ca693e3df85dd8932ca5de9c11ee9c61508690f7d0f92
+run=08 sha256=34f469923f1d52d1fd9ca693e3df85dd8932ca5de9c11ee9c61508690f7d0f92
+run=09 sha256=34f469923f1d52d1fd9ca693e3df85dd8932ca5de9c11ee9c61508690f7d0f92
+run=10 sha256=34f469923f1d52d1fd9ca693e3df85dd8932ca5de9c11ee9c61508690f7d0f92
+--- 一意なハッシュの数（1 なら 10 回すべて一致）---
+1
+--- pytest の D-01 テスト（同一プロセス内 10 回）を 10 回連続 ---
+run=01 exit=0 17 passed, 49 deselected in 0.04s
+run=02 exit=0 17 passed, 49 deselected in 0.04s
+run=03 exit=0 17 passed, 49 deselected in 0.06s
+run=04 exit=0 17 passed, 49 deselected in 0.04s
+run=05 exit=0 17 passed, 49 deselected in 0.04s
+run=06 exit=0 17 passed, 49 deselected in 0.04s
+run=07 exit=0 17 passed, 49 deselected in 0.04s
+run=08 exit=0 17 passed, 49 deselected in 0.04s
+run=09 exit=0 17 passed, 49 deselected in 0.04s
+run=10 exit=0 17 passed, 49 deselected in 0.04s

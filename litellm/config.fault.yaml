@@ -32,6 +32,10 @@ model_list:
 router_settings:
   fallbacks: [{ "sre-agent-model": ["sre-agent-model-fallback"] }]
   num_retries: 0
+  # ここは 30 のまま据え置く。Phase 1 の F-03（無応答型障害）は
+  # timeout < FAULT_DELAY_SECONDS(45) が成立していることを前提にしたシナリオであり、
+  # config.yaml と揃えて 60 にすると F-03 が再現できなくなる。
+  # 正常系の timeout は L-01 の実測にもとづき config.yaml 側で 60 に変更済み。
   timeout: 30
   allowed_fails: 2
   cooldown_time: 30

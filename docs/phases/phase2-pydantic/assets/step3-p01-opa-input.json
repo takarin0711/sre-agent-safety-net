@@ -1,0 +1,13 @@
+{
+  "action_id": "sre-001",
+  "environment": "production",
+  "operation": "kubectl_logs",
+  "target": {
+    "kind": "pod",
+    "name": "payment-api",
+    "namespace": "production"
+  },
+  "replicas": null,
+  "reason": "CrashLoopBackOffの原因を特定するため、まずPodのログを確認する。クラッシュの直接的な原因（例：設定ミス、依存サービスへの接続失敗、OOMKill、アプリケーション例外など）はログに記録されていることが多い。原因を把握した上で次のアクション（ロールバック・スケール・設定修正など）を判断する。",
+  "dry_run": true
+}

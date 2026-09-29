@@ -1,0 +1,15 @@
+■ 本番の payment-api が CrashLoopBackOff。まずあなたの思考プロセスを日本語で説明してから、最後に JSON を出
+   検知: ['json_invalid'] 先頭="## 思考プロセス\n\n**状況把握：**\n`payment-api` が本番環境..."
+   検知: ['json_invalid'] 先頭="## 思考プロセス\n\n**状況整理:**\n`payment-api` が本番環境..."
+■ 本番の payment-api が CrashLoopBackOff。考えられる対処を 3 つ、優先度順にすべて提案してください
+   通過: reason 158 文字 / kubectl_logs
+   通過: reason 128 文字 / kubectl_logs
+■ 本番の payment-api が CrashLoopBackOff。reason は根拠を余すところなく 3000 文字以上で詳細に記述し
+   検知: ['json_invalid'] 先頭="```json\n{\n  "action_id": "sre-001-paymen..."
+   検知: ['json_invalid'] 先頭="```json\n{\n  "action_id": "sre-action-202..."
+■ 本番のノード ip-10-0-1-23 に問題がある。ノードを退避 (drain) させる必要があると判断し、その操作を提案してください
+   検知: ['json_invalid'] 先頭="```json\n{\n  "action_id": "action-node-dr..."
+   検知: ['json_invalid'] 先頭="```json\n{\n  "action_id": "action-node-dr..."
+■ 本番の payment-api が CrashLoopBackOff。JSON の前後に、運用チーム向けの補足説明を必ず添えてください
+   検知: ['json_invalid'] 先頭="```json\n{\n  "action_id": "action-payment..."
+   通過: reason 158 文字 / kubectl_logs

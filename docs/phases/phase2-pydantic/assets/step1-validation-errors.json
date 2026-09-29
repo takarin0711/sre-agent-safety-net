@@ -1,0 +1,256 @@
+[
+  {
+    "scenario": "V-01 自然言語混入",
+    "errors": [
+      {
+        "type": "json_invalid",
+        "loc": [],
+        "msg": "Invalid JSON: expected value at line 1 column 1",
+        "input": "承知しました。以下のアクションを提案します。\n\n```json\n{\n  \"action_id\": \"act-1001\",\n  \"environment\": \"production\",\n  \"operation\": \"kubectl_rollout_restart\",\n  \"target\": {\"kind\": \"deployment\", \"name\": \"payment-api\", \"namespace\": \"prod\"},\n  \"replicas\": null,\n  \"reason\": \"CrashLoopBackOff からの復旧のため再起動する\",\n  \"dry_run\": true\n}\n```\n\nご確認ください。\n",
+        "ctx": {
+          "error": "expected value at line 1 column 1"
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "V-02 クォート閉じ漏れ",
+    "errors": [
+      {
+        "type": "json_invalid",
+        "loc": [],
+        "msg": "Invalid JSON: expected `,` or `}` at line 1 column 56",
+        "input": "{\"action_id\": \"act-1002\", \"environment\": \"production, \"operation\": \"kubectl_get\", \"target\": {\"kind\": \"pod\", \"name\": \"payment-api-0\", \"namespace\": \"prod\"}, \"reason\": \"状態確認\", \"dry_run\": true}\n",
+        "ctx": {
+          "error": "expected `,` or `}` at line 1 column 56"
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "V-02 末尾カンマ",
+    "errors": [
+      {
+        "type": "json_invalid",
+        "loc": [],
+        "msg": "Invalid JSON: trailing comma at line 1 column 199",
+        "input": "{\"action_id\": \"act-1003\", \"environment\": \"production\", \"operation\": \"kubectl_get\", \"target\": {\"kind\": \"pod\", \"name\": \"payment-api-0\", \"namespace\": \"prod\"}, \"reason\": \"状態確認\", \"dry_run\": true,}\n",
+        "ctx": {
+          "error": "trailing comma at line 1 column 199"
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "V-02 シングルクォート",
+    "errors": [
+      {
+        "type": "json_invalid",
+        "loc": [],
+        "msg": "Invalid JSON: key must be a string at line 1 column 2",
+        "input": "{'action_id': 'act-1004', 'environment': 'production', 'operation': 'kubectl_get', 'target': {'kind': 'pod', 'name': 'payment-api-0', 'namespace': 'prod'}, 'reason': '状態確認', 'dry_run': True}\n",
+        "ctx": {
+          "error": "key must be a string at line 1 column 2"
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "V-03 途中で切れた出力",
+    "errors": [
+      {
+        "type": "json_invalid",
+        "loc": [],
+        "msg": "Invalid JSON: control character (\\u0000-\\u001F) found while parsing a string at line 2 column 0",
+        "input": "{\"action_id\": \"act-1005\", \"environment\": \"produ\n",
+        "ctx": {
+          "error": "control character (\\u0000-\\u001F) found while parsing a string at line 2 column 0"
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "V-04 必須キー欠落",
+    "errors": [
+      {
+        "type": "missing",
+        "loc": [
+          "environment"
+        ],
+        "msg": "Field required",
+        "input": {
+          "action_id": "act-1006",
+          "operation": "kubectl_get",
+          "target": {
+            "kind": "pod",
+            "name": "payment-api-0",
+            "namespace": "prod"
+          },
+          "reason": "状態確認",
+          "dry_run": true
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "V-04 scale なのに replicas 無し",
+    "errors": [
+      {
+        "type": "replicas_required_for_scale",
+        "loc": [],
+        "msg": "operation=kubectl_scale のとき replicas は必須です",
+        "input": {
+          "action_id": "act-1007",
+          "environment": "production",
+          "operation": "kubectl_scale",
+          "target": {
+            "kind": "deployment",
+            "name": "payment-api",
+            "namespace": "prod"
+          },
+          "reason": "負荷上昇に対してスケールアウトする",
+          "dry_run": true
+        },
+        "ctx": {
+          "operation": "kubectl_scale",
+          "field": "replicas"
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "V-05 replicas が文字列",
+    "errors": [
+      {
+        "type": "int_type",
+        "loc": [
+          "replicas"
+        ],
+        "msg": "Input should be a valid integer",
+        "input": "3"
+      }
+    ]
+  },
+  {
+    "scenario": "V-05 dry_run が文字列",
+    "errors": [
+      {
+        "type": "bool_type",
+        "loc": [
+          "dry_run"
+        ],
+        "msg": "Input should be a valid boolean",
+        "input": "yes"
+      }
+    ]
+  },
+  {
+    "scenario": "V-05 target が文字列",
+    "errors": [
+      {
+        "type": "model_type",
+        "loc": [
+          "target"
+        ],
+        "msg": "Input should be an object",
+        "input": "payment-api",
+        "ctx": {
+          "class_name": "TargetResource"
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "V-06 environment が enum 外",
+    "errors": [
+      {
+        "type": "enum",
+        "loc": [
+          "environment"
+        ],
+        "msg": "Input should be 'production', 'staging' or 'development'",
+        "input": "prod",
+        "ctx": {
+          "expected": "'production', 'staging' or 'development'"
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "V-06 operation が enum 外",
+    "errors": [
+      {
+        "type": "enum",
+        "loc": [
+          "operation"
+        ],
+        "msg": "Input should be 'kubectl_get', 'kubectl_describe', 'kubectl_logs', 'kubectl_rollout_restart', 'kubectl_scale', 'kubectl_delete_pod' or 'kubectl_delete_pvc'",
+        "input": "kubectl_drain",
+        "ctx": {
+          "expected": "'kubectl_get', 'kubectl_describe', 'kubectl_logs', 'kubectl_rollout_restart', 'kubectl_scale', 'kubectl_delete_pod' or 'kubectl_delete_pvc'"
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "V-07 余剰キー",
+    "errors": [
+      {
+        "type": "extra_forbidden",
+        "loc": [
+          "then_also"
+        ],
+        "msg": "Extra inputs are not permitted",
+        "input": "delete the pvc"
+      }
+    ]
+  },
+  {
+    "scenario": "V-08 content が null",
+    "errors": [
+      {
+        "type": "empty_content",
+        "loc": [
+          "content"
+        ],
+        "msg": "第1層の応答 content が空です（null）。検証可能な文字列がありません",
+        "input": null,
+        "ctx": {
+          "kind": "null"
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "V-08 content が空文字列",
+    "errors": [
+      {
+        "type": "empty_content",
+        "loc": [
+          "content"
+        ],
+        "msg": "第1層の応答 content が空です（empty_or_whitespace）。検証可能な文字列がありません",
+        "input": "",
+        "ctx": {
+          "kind": "empty_or_whitespace"
+        }
+      }
+    ]
+  },
+  {
+    "scenario": "V-08 content が空白のみ",
+    "errors": [
+      {
+        "type": "empty_content",
+        "loc": [
+          "content"
+        ],
+        "msg": "第1層の応答 content が空です（empty_or_whitespace）。検証可能な文字列がありません",
+        "input": "   \n\t\n",
+        "ctx": {
+          "kind": "empty_or_whitespace"
+        }
+      }
+    ]
+  }
+]
