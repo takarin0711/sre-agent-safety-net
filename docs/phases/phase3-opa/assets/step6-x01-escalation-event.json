@@ -1,0 +1,24 @@
+{
+  "layer": "layer3_opa",
+  "kind": "policy_unavailable",
+  "trace_id": "e39d304e-3ef0-426e-bd4f-12d12f1a5ff6",
+  "reason": "第3層が評価できないため実行を中止しました（unreachable）: OPA に接続できませんでした（ConnectError: [Errno 61] Connection refused）",
+  "errors": [],
+  "action": {
+    "action_id": "action-001",
+    "environment": "production",
+    "operation": "kubectl_logs",
+    "target": {
+      "kind": "pod",
+      "name": "payment-api",
+      "namespace": "prod"
+    },
+    "replicas": null,
+    "reason": "CrashLoopBackOff の原因を特定するため、まず Pod のログを確認する。アプリケーションが出力したエラーメッセージや例外スタックトレースを取得することで、設定ミス・依存サービスへの接続失敗・OOM など障害の根本原因を絞り込める。kubectl_describe よりも先にログを確認することで、アプリ層の問題か基盤層の問題かを素早く判断できる。",
+    "dry_run": true
+  },
+  "violated_rules": [],
+  "raw_output": null,
+  "original_request": "本番クラスタの namespace prod にある payment-api の Pod が CrashLoopBackOff になっている。原因を切り分けるため、まず現状を確認したい。",
+  "occurred_at": "2026-09-30T05:19:04.042399Z"
+}

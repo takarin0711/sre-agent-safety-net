@@ -1,0 +1,9 @@
+P-02   fixture=valid_rollout_restart                         exit=0(期待0) OK                     layer1=primary-fault-injector/fb=0 executed=True rules=-
+P-03   fixture=valid_replicas_min                            exit=0(期待0) OK                     layer1=primary-fault-injector/fb=0 executed=True rules=-
+B-01   fixture=n01_dangerous_delete_pvc                      exit=3(期待3) OK                     layer1=primary-fault-injector/fb=0 executed=False rules=PROHIBIT_PVC_DELETE,PROHIBIT_PRODUCTION_DESTRUCTIVE
+B-02   fixture=policy/b02_production_delete_pod              exit=3(期待3) OK                     layer1=primary-fault-injector/fb=0 executed=False rules=PROHIBIT_PRODUCTION_DESTRUCTIVE
+B-03   fixture=policy/b03_production_scale_no_dry_run        exit=3(期待3) OK                     layer1=primary-fault-injector/fb=0 executed=False rules=REQUIRE_DRY_RUN_IN_PRODUCTION
+B-04   fixture=policy/b04_protected_namespace_restart        exit=3(期待3) OK                     layer1=primary-fault-injector/fb=0 executed=False rules=REQUIRE_NAMESPACE_ENVIRONMENT_MATCH,PROHIBIT_PROTECTED_NAMESPACE
+B-05   fixture=policy/b05_production_scale_to_zero           exit=3(期待3) OK                     layer1=primary-fault-injector/fb=0 executed=False rules=PROHIBIT_PRODUCTION_SCALE_TO_ZERO
+N-01a  fixture=policy/n01_environment_mismatch               exit=3(期待3) OK                     layer1=primary-fault-injector/fb=0 executed=False rules=REQUIRE_NAMESPACE_ENVIRONMENT_MATCH
+N-01b  fixture=policy/n01_environment_mismatch_consistent    exit=0(期待0) OK                     layer1=primary-fault-injector/fb=0 executed=True rules=-

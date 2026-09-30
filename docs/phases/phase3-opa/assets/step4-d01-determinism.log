@@ -1,0 +1,22 @@
+round  1: 44e28b49 44e28b49 e0ac1adb 39107527 08cd74d3 622e470f e4fba00a
+round  2: 44e28b49 44e28b49 e0ac1adb 39107527 08cd74d3 622e470f e4fba00a
+round  3: 44e28b49 44e28b49 e0ac1adb 39107527 08cd74d3 622e470f e4fba00a
+round  4: 44e28b49 44e28b49 e0ac1adb 39107527 08cd74d3 622e470f e4fba00a
+round  5: 44e28b49 44e28b49 e0ac1adb 39107527 08cd74d3 622e470f e4fba00a
+--- 5 回目の後に OPA を再起動する ---
+round  6: 44e28b49 44e28b49 e0ac1adb 39107527 08cd74d3 622e470f e4fba00a
+round  7: 44e28b49 44e28b49 e0ac1adb 39107527 08cd74d3 622e470f e4fba00a
+round  8: 44e28b49 44e28b49 e0ac1adb 39107527 08cd74d3 622e470f e4fba00a
+round  9: 44e28b49 44e28b49 e0ac1adb 39107527 08cd74d3 622e470f e4fba00a
+round 10: 44e28b49 44e28b49 e0ac1adb 39107527 08cd74d3 622e470f e4fba00a
+
+  valid_rollout_restart.json                         sha256=44e28b496c1475b6f99eb004a59bcf5004a0ed26305e349074c2ce91ba787e81
+  valid_replicas_min.json                            sha256=44e28b496c1475b6f99eb004a59bcf5004a0ed26305e349074c2ce91ba787e81
+  n01_dangerous_delete_pvc.json                      sha256=e0ac1adbb0c60303e08e1a9d8c4741ed5a6c07540d16a58fb3c9c16a5ad2bfe1
+  policy/b03_production_scale_no_dry_run.json        sha256=39107527e5d4f2355d1b16a0e08675544331e30b17f98909d01eb48e9b6d3f35
+  policy/b04_protected_namespace_restart.json        sha256=08cd74d337751d281eb60090eec775d7f03bfd8ddeb8fcd0517903d012cbaad2
+  policy/b05_production_scale_to_zero.json           sha256=622e470f34db395a5ca630ad3d64294b600c466fe42c26aad90bbcd4261a9e94
+  policy/n01_environment_mismatch.json               sha256=e4fba00aa9417339dbd44cf8c32ccb8617c2b0857842f20c51b8b088c3f8968c
+
+10 ラウンド × 7 ケース = 70 判定
+すべて一致: True

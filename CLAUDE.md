@@ -33,9 +33,16 @@ docker compose up -d              # 正常系（両リージョンとも実 Bedr
 LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=rate_limit docker compose up -d   # 異常系 (第1層)
 LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=malformed FAULT_FIXTURE=v01_prose \
   docker compose up -d            # 異常系 (第2層 / R-01)。200 を返し content だけ壊す
-docker compose restart litellm    # シナリオを切り替えるたびに必須（Router の cooldown を初期化）
+docker compose restart litellm    # Router の cooldown を初期化するとき（状態のリセット専用）
+docker compose up -d --force-recreate litellm fault-injector   # 設定・env を切り替えるとき（restart では反映されない）
 docker compose logs fault-injector  # primary が実際に何回叩かれたかの裏取り
 docker compose down
+
+# 異常系 (第3層)。agents/ は変更しない
+docker compose stop opa                                          # X-01 接続不能
+OPA_POLICY_DIR=./mocks/opa_faults/no_policy       docker compose up -d opa   # X-04 undefined
+OPA_POLICY_DIR=./mocks/opa_faults/allow_as_string docker compose up -d opa   # X-05 形の逸脱
+docker compose logs opa           # Decision Log。allow がポリシー評価の結果である裏取り
 
 # AWS クレデンシャルの更新（SSO の一時クレデンシャルが失効したとき）
 aws sso login --profile <PROFILE>
@@ -45,12 +52,15 @@ docker compose up -d              # コンテナを作り直さないと新し�
 # エージェント実行
 python -m agents.main --prompt "hello"                            # 第2層を通らない (Phase 1 の経路)
 python -m agents.main --prompt "hello" --repeat 20 --interval 15   # F-05 フェイルバック観測
-python -m agents.main --incident "本番の payment-api の Pod が CrashLoopBackOff"   # 第2層を通る (Phase 2)
+python -m agents.main --incident "本番の payment-api の Pod が CrashLoopBackOff"   # 第2層 → 第3層
+python -m agents.main --incident "..." --no-policy   # 第2層で止める (Phase 2 の経路の再現)
+# --incident の終了コード: 0 allow / 1 第1層・第2層の失敗 / 2 設定不足 / 3 deny / 4 評価不能
 
 # テスト
 pytest                            # 第2層 (JSON Validator) の単体検証
 python -m tests.dump_validation_errors <out.json>   # errors() の生 JSON をエビデンスとして保存
-opa test opa/                     # Rego ポリシーの単体テスト
+# Rego ポリシーの単体テスト。opa CLI が無いので Docker で実行する
+docker run --rm -v "$PWD/opa:/policies:ro" openpolicyagent/opa:1.21.0 test /policies -v
 
 # 疎通（プロセスの死活確認のみ。推論が通る保証にはならない）
 curl -s http://localhost:4000/health
@@ -134,6 +144,45 @@ curl -s http://localhost:8181/health
 - **構造化出力の強制は「弱められたスキーマ」しか強制できない。** Bedrock は `minimum` / `maximum` /
   `minLength` / `maxLength` / `pattern` を受け付けない。第2層のスキーマを正本とし、
   強制側はそこから劣化させたコピーとして扱う。
+
+## Phase 3 の前提（完了）
+
+- 第3層は **OPA / Rego**。エージェントとは別プロセスで、`POST /v1/data/sre/agent/decision` に
+  問い合わせる。`allow` と `violated_rules` を**1 回の評価で同時に**受け取る（拒否と理由は不可分）。
+- **`default allow := false` を書かない。** ポリシー未ロードは `result` ごと返らない（undefined）状態として
+  表面化させ、エージェント側が Fail-Closed する。default を置くと「評価して拒否した」と
+  「ポリシーが無い」が同じ `allow: false` に潰れ、Slack の通知パターン3 と 4 を区別できなくなる。
+- **deny は戻り値、評価不能は例外**（`PolicyUnavailableError`）。遮断されたという結果は同じでも、
+  人間に見せるものと次の一手が違う（[D-015](docs/decisions.md)）。
+- **OPA の応答を無検証で信じない。** `PolicyDecision` は `strict=True` / `extra="forbid"` で、
+  `allow` の型不一致・未知のキー・自己矛盾（違反つき allow / 理由なき deny）はすべて
+  評価不能に倒す（[D-017](docs/decisions.md)）。
+- **ポリシーの判定に使う語彙を `agents/` に書かない。** `production` や `kubectl_delete_*` による
+  条件分岐は `opa/` の中だけに存在する（pytest で強制している）。
+  例外は `schemas.py` / `prompts.py` で、そこは語彙の定義と提示であって判定ではない。
+- **`input` は `{"action": ..., "trace_id": ...}`。Rego は `trace_id` を参照しない**（[D-016](docs/decisions.md)）。
+  判定材料と監査の突合キーを構造的に分ける。Trace ID は OPA の Decision Log に残り、
+  Slack のボタン `value` に入るのもこの値だけになる。
+- 実行層は dry-run ログのみ。`allow: true` かつ `dry_run: false` でも実 `kubectl` は発行しない。
+
+詳細は [design.md](docs/phases/phase3-opa/design.md)、
+結果は [result.md](docs/phases/phase3-opa/result.md)（2026-09-30 完了・合格）。
+
+### Phase 4 以降にも効く Phase 3 の知見
+
+- **`docker compose restart` は設定を切り替えない。** コンテナを作り直さないため `command` の
+  `${LITELLM_CONFIG_FILE}` も環境変数も古いままになる。設定を変えるときは
+  **`up -d --force-recreate`**、`restart` は状態（Router の cooldown 等）の初期化にのみ使う。
+- **注入が効いていることの確認は「注入器が動いているか」では足りない**（[D-018](docs/decisions.md)）。
+  リクエストが実際にその経路を通ったこと（`x-litellm-model-id` / 直叩きの生応答）で確認する。
+  注入の失敗は偽の合格にも**偽の不合格**にもなる。どちらに転ぶかは運である。
+- **Rego の undefined は allow 側に倒れる。** 必須フィールドが欠けた入力はルールが発火せず通る。
+  第2層が先に立っているのは安全上の必要条件であり、整理のための並びではない。
+  だからといって Rego に構造検証を書かない（[D-002](docs/decisions.md) を逆に崩す）。
+- **第3層は input の真正性を検証できない。** environment と namespace を揃えて詐称されると通る。
+  第3層が評価しているのは「エージェントの自己申告」である。
+- **`timeout` の決め方は層によって難易度が違う。** 第3層は定常 4 ms 台で `timeout: 3.0` の
+  52 倍の余裕があり、実測した結果「変える必要がない」が結論になった。規律は同じでも結論は同じとは限らない。
 
 ## 注意点
 

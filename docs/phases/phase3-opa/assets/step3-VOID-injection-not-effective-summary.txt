@@ -1,0 +1,7 @@
+P-02   fixture=valid_rollout_restart                         exit=3(期待0) MISMATCH layer1=primary-jp/fb=0 executed=False rules=REQUIRE_NAMESPACE_ENVIRONMENT_MATCH
+P-03   fixture=valid_replicas_min                            exit=0(期待0) MISMATCH layer1=primary-jp/fb=0 executed=True rules=-
+B-01   fixture=n01_dangerous_delete_pvc                      exit=0(期待3) MISMATCH layer1=primary-jp/fb=0 executed=True rules=-
+B-02   fixture=policy/b02_production_delete_pod              exit=3(期待3) MISMATCH layer1=primary-jp/fb=0 executed=False rules=REQUIRE_NAMESPACE_ENVIRONMENT_MATCH,PROHIBIT_PRODUCTION_DESTRUCTIVE
+B-03   fixture=policy/b03_production_scale_no_dry_run        exit=3(期待3) MISMATCH layer1=primary-jp/fb=0 executed=False rules=REQUIRE_NAMESPACE_ENVIRONMENT_MATCH,REQUIRE_DRY_RUN_IN_PRODUCTION
+B-04   fixture=policy/b04_protected_namespace_restart        exit=3(期待3) MISMATCH layer1=primary-jp/fb=0 executed=False rules=REQUIRE_NAMESPACE_ENVIRONMENT_MATCH,PROHIBIT_PROTECTED_NAMESPACE,REQUIRE_DRY_RUN_IN_PRODUCTION
+B-05   fixture=policy/b05_production_scale_to_zero           exit=3(期待3) MISMATCH layer1=primary-jp/fb=0 executed=False rules=REQUIRE_NAMESPACE_ENVIRONMENT_MATCH,PROHIBIT_PRODUCTION_SCALE_TO_ZERO

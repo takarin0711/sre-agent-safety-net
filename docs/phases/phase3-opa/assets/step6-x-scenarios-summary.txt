@@ -1,0 +1,7 @@
+X-01   exit=4(期待4) failure=unreachable         OK  第2層通過=True allow=False executed=False kind=policy_unavailable | 注入確認: docker compose ps opa -> [停止]
+X-02   exit=4(期待4) failure=timeout             OK  第2層通過=True allow=False executed=False kind=policy_unavailable | 注入確認: injector startup: FAULT_MODE=timeout
+X-03   exit=4(期待4) failure=http_error          OK  第2層通過=True allow=False executed=False kind=policy_unavailable | 注入確認: injector 直叩き: 500
+X-04   exit=4(期待4) failure=undefined           OK  第2層通過=True allow=False executed=False kind=policy_unavailable | 注入確認: OPA 直叩き: {"decision_id":"660cc9df-a6f4-4f44-b0c6-1e3168d8532f"}
+X-05a  exit=4(期待4) failure=malformed_decision  OK  第2層通過=True allow=False executed=False kind=policy_unavailable | 注入確認: OPA 直叩き: {"decision_id":"e62b0c1c-ad21-4582-bc65-ac5e3ea6f7a0","result":{"allow":"false","violated_
+X-05b  exit=4(期待4) failure=malformed_decision  OK  第2層通過=True allow=False executed=False kind=policy_unavailable | 注入確認: OPA 直叩き: {"decision_id":"0ad663ec-7db1-483c-9090-10a816330621","result":{"allow":true,"violated_rul
+X-05c  exit=4(期待4) failure=malformed_decision  OK  第2層通過=True allow=False executed=False kind=policy_unavailable | 注入確認: OPA 直叩き: {"decision_id":"23db6a2a-ccf4-4b49-b14c-ca5cfd4f2833","result":{"allow":false,"requires_ap

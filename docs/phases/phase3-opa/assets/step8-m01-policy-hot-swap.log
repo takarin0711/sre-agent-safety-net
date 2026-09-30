@@ -1,0 +1,31 @@
+=== M-01: opa/ のファイル変更だけで判定を反転させる（D-002 の実証）===
+OPA コンテナの起動時刻（前）: 2026-09-30T05:19:54.435002385Z
+agents/ の差分（前）:  4 files changed, 212 insertions(+), 35 deletions(-)
+
+--- 変更前: staging の scale to 0 は allow ---
+{"decision_id":"cad8ed48-8a46-4599-b9a1-430976b7f428","result":{"allow":true,"violated_rules":[]}}
+
+
+--- opa/data.json の protected_namespaces に staging を足す（データだけの変更。ルールは触らない）---
+protected_namespaces = ['kube-system', 'kube-public', 'kube-node-lease', 'staging']
+
+--- 変更後: 同じ入力・同じプロセス・同じコンテナで deny になる ---
+{
+    "decision_id": "39915f50-381c-4fda-8222-36b9a45b4386",
+    "result": {
+        "allow": false,
+        "violated_rules": [
+            {
+                "message": "保護対象の namespace staging への操作 kubectl_scale は自動実行を許可しません（参照系のみ許可）",
+                "rule": "PROHIBIT_PROTECTED_NAMESPACE"
+            }
+        ]
+    }
+}
+OPA コンテナの起動時刻（後）: 2026-09-30T05:19:54.435002385Z
+agents/ の差分（後）:  4 files changed, 212 insertions(+), 35 deletions(-)
+
+--- data.json を戻すと allow に復帰する（--watch で再読込。再起動していない）---
+{"decision_id":"256c37ac-7199-4ba7-a9c4-799a5ef47496","result":{"allow":true,"violated_rules":[]}}
+
+OPA コンテナの起動時刻（復帰後）: 2026-09-30T05:19:54.435002385Z

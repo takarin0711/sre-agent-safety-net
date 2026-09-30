@@ -1,6 +1,6 @@
 # TODO / 現在地
 
-最終更新: 2026-09-29
+最終更新: 2026-09-30
 
 ## 現在地
 
@@ -11,13 +11,23 @@
 結果・考察・提言は [phases/phase2-pydantic/result.md](phases/phase2-pydantic/result.md)。
 新たな設計判断は [D-010〜D-014](decisions.md)。
 
-**次は Phase 3（OPA）。着手前に design.md を書くこと。**
+**Phase 3 の設計を確定（2026-09-30）。** [phases/phase3-opa/design.md](phases/phase3-opa/design.md) を書き切った。
+新たな設計判断は [D-015〜D-017](decisions.md)。
+
+**Phase 3 は完了（2026-09-30）。** 全シナリオを実施し総合判定は合格。
+結果・考察・提言は [phases/phase3-opa/result.md](phases/phase3-opa/result.md)。
+新たな設計判断は [D-015〜D-018](decisions.md)。
+
+**次は Phase 4（Slack）。着手前に design.md を書くこと。**
+
+Phase 3 の設計は、別途の仕様書「フォールバック & Handoff フロー図」を前提にしている。
+**どこまでを Phase 3 で扱い、どこからを Phase 4 / 5 に渡すかは design.md 第0章の対応表が正**。
 
 | フェーズ | 設計 | 実装 | 実行 |
 | --- | --- | --- | --- |
 | Phase 1 (LiteLLM) | 完了 | 完了 | **完了（合格）** |
 | Phase 2 (JSON Validator) | 完了 | 完了 | **完了（合格）** |
-| Phase 3 (OPA) | 未着手 | 未着手 | 未着手 |
+| Phase 3 (OPA) | 完了 | 完了 | **完了（合格）** |
 | Phase 4 (Slack) | 未着手 | 未着手 | 未着手 |
 | Phase 5 (E2E) | 未着手 | 未着手 | 未着手 |
 
@@ -178,31 +188,153 @@
 
 ### 積み残し（Phase 2 としては完了扱い）
 
-- [ ] `EscalationEvent` に `request_id` / `x-litellm-call-id` を追加（Phase 4）
+- [x] `EscalationEvent` に相関 ID を追加 → **Phase 4 ではなく Phase 3 で導入する**（[D-016](decisions.md)）。
+      Handoff 仕様書の運用原則2（ボタンの `value` は Trace ID のみ）が、第3層の拒否時点で
+      Trace ID が確定していることを前提にしているため
 - [ ] `raw_output` の切り詰め（Block Kit のテキスト長上限。Phase 4）
 - [ ] 実 LLM の構造破壊率は測っていない（PoC の呼び出し量では有意な推定ができない。design.md 非目的）
 - [ ] 強制スキーマの自動生成（第2層のスキーマから劣化コピーを作る仕組み）は提言に留めた
 
 ---
 
-## Phase 3 以降の準備タスク
+## Phase 3 の実装と実行（完了）
+
+実施手順は [design.md 第8章](phases/phase3-opa/design.md)。判定基準は第5章。
+
+実装（完了）:
+
+- [x] `opa/policy.rego`（6 ルール。`decision` 文書 1 本で `allow` と `violated_rules` を返す。
+      **`default allow := false` は書かない** — undefined を「拒否」に潰すとパターン3 と 4 が区別できなくなる）
+- [x] `opa/data.json`（操作の分類・保護 namespace・環境と namespace の対応。`data.catalog` に置く）
+- [x] `opa/policy_test.rego`（U-01〜U-08 + N-02。**18 件パス**。各ルールに allow / deny 両方）
+- [x] `mocks/opa_faults/`（X-04 / X-05 用。`allow_as_string` / `contradictory` / `unknown_key` / `no_policy`）
+- [x] `docker-compose.yml`（OPA の `profiles` を外す / `--set=decision_logs.console=true` /
+      `OPA_POLICY_DIR` の変数化 / `--watch` / イメージを `1.21.0` に固定）
+- [x] `agents/schemas.py`（`ViolatedRule` / `PolicyDecision` / `OpaResponse` / `EscalationEvent` 拡張）
+- [x] `agents/policy.py`（`evaluate_action()` と `PolicyUnavailableError`。第3層の唯一の入口。
+      **deny は戻り値、評価不能は例外**）
+- [x] `agents/main.py`（Trace ID の発番と伝播 / 第3層の呼び出し / 実行層の dry-run ログ /
+      終了コード 3・4 / `--no-policy`）
+- [x] `tests/fixtures/policy/`（B-02〜B-05 / N-01 の 2 種 / N-02。B-01・P-02・P-03 は Phase 2 の fixture を再利用）
+- [x] `tests/test_layer3_policy.py`（decision のパースと Fail-Closed の単体。**27 件パス**。HTTP はモック）
+- [x] `.env.example` / `.env`（`OPA_URL` を decision のフルパスに / `OPA_TIMEOUT_SECONDS` / `OPA_POLICY_DIR`）
+
+設計時に想定していなかった実装上の追加・差分（**いずれも result.md に転記する**）:
+
+- **`REQUIRE_NAMESPACE_ENVIRONMENT_MATCH` から参照系を除外した。** design.md 3.4 の表は
+  参照系を除外していなかったが、除外しないと U-06（保護 namespace × 参照系は allow）および
+  「参照系はどのルールにも該当しない」という構造と矛盾する。**design.md は書き換えず**、
+  ポリシー側にコメントを残した（判定基準そのものは変えていない）
+- `agents/log.py` に `json_safe_errors()` を移した。第2層（LLM 出力）と第3層（OPA 応答）の
+  両方で `ValidationError` を JSON 化するため。`validation.py` の挙動は変えていない
+- `validate_action()` / `build_escalation_event()` に **`trace_id` を必須引数として追加**（D-016）。
+  Phase 2 のテスト 15 箇所を機械的に更新したが、**66 件はそのままパス**（判定内容は不変）
+- **第3層の異常系ポリシーは `mocks/opa_faults/` に置いた。** `opa/` の下に置くと
+  `decision` の定義が衝突して OPA が起動しなくなる。障害注入部品を `mocks/` に置く方針は D-006 と同じ
+- **`mocks/fault_injector.py` は無改修。** `FAULT_FIXTURE` にサブディレクトリを書けるため
+  （`policy/b02_production_delete_pod`）、第3層用の fixture もそのまま経路に流せる
+- **`.env` の `OPA_URL` を更新する必要があった。** 旧値 `http://localhost:8181` のままだと
+  404 → `http_error` になる。パス誤りが Fail-Closed に落ちること自体は設計どおり
+
+実装中に判明した未決事項の回答（**result.md に転記する**）:
+
+| # | 確認事項 | 判明したこと |
+| --- | --- | --- |
+| 2 | undefined の正確な形 | パス誤りでも **200 + `{"decision_id": "..."}`**（`result` キーが無い）。404 にはならない。`OpaResponse.result is None` で判定できる |
+| 3 | Decision Log の形式 | `input` 全体（`trace_id` を含む）・`result`・`decision_id`・`path`・`metrics` が 1 行 JSON で出る。**レスポンスにも `decision_id` が含まれる**ため突合キーは 2 系統取れる |
+| 5 | OPA のバージョン | `latest` は **1.21.0**（Rego v1 が既定）。`docker-compose.yml` で固定した。`import rego.v1` はそのまま有効 |
+| 7 | `data.json` のキー衝突 | `data.catalog` はパッケージ `data.sre.agent` と衝突しない。問題なく読める |
+| 8 | `opa test` とデータ | `opa test opa/` はディレクトリ内の `data.json` を**自動で読む**。モックは不要（実データと乖離しない） |
+
+`opa` CLI はホストに入っていないため、単体テストは Docker で実行する:
+
+```bash
+docker run --rm -v "$PWD/opa:/policies:ro" openpolicyagent/opa:1.21.0 test /policies -v
+```
+
+実行（完了。design.md 4.6 の順序で実施した）:
+
+- [x] U-01〜U-08 を `opa test` で通す（**18 件パス**。アプリを起動せずに実行できることも確認）
+- [x] P-01〜P-03（allow → `execution.dry_run` まで到達。P-01 は実 LLM で `kubectl_logs` を提案）
+- [x] B-01〜B-05（全件 deny・終了コード 3・`execution.dry_run` は出ない）
+- [x] D-01（7 ケース × 10 ラウンド = **70 判定の SHA-256 が全一致**。OPA 再起動を挟んでも不変）
+- [x] L-01（定常 3.9〜8.4 ms / n=30、初回 57.3 ms → **`OPA_TIMEOUT_SECONDS` は 3.0 を据え置き**）
+- [x] X-01〜X-05（7 実行すべて Fail-Closed。各シナリオで注入の確認を記録）
+- [x] N-01（ラベル詐称は部分的にしか止められない）/ N-02（第2層バイパスで `allow: true`）
+- [x] M-01（`opa/data.json` の 1 行で判定を反転。コンテナの `StartedAt` 不変、`agents/` 差分ゼロ）
+- [x] C-01（考察7 に構造比較として記録）
+- [x] result.md / decisions.md（D-018 を追加）/ README ロードマップ / TODO.md を更新
+
+---
+
+## Phase 3 の結果サマリ
+
+全シナリオ実施済み。判定基準 1〜7 すべて合格。
+
+| ID | 結果 | 要点 |
+| --- | --- | --- |
+| U-01〜U-08 | 合格 | `opa test` 18 件。各ルールに allow / deny 両方のケース |
+| P-01〜P-03 | 合格 | 実 LLM 経路も含め allow → 実行層（dry-run）まで到達 |
+| B-01〜B-05 | 合格 | 全件 deny + 規則 ID + 人間が読む理由。**B-01 は Phase 2 の N-01 と同一入力** |
+| X-01〜X-05 | 合格 | 接続不能 / timeout / 500 / undefined / 形の逸脱 3 種すべてで Fail-Closed（終了コード 4） |
+| D-01 | 合格 | 70 判定の SHA-256 が完全一致（OPA 再起動を挟む） |
+| N-01 | 合格 | 詐称の検知には限界がある（namespace まで揃えられると allow） |
+| N-02 | 合格 | 第2層をバイパスすると `allow: true` になる（層の順序の必然性） |
+| M-01 | 合格 | ポリシーの差し替えだけで判定が反転（D-002 の実証） |
+| L-01 | 計測 | 第3層は第1層と桁が 3 つ違う。`timeout` の再決定は不要だった |
+
+### 実行中に判明した重要事項
+
+- **また注入が効いていなかった。今回は「偽の不合格」に見えた。** `docker compose restart` は
+  コンテナを作り直さないため `command` の `${LITELLM_CONFIG_FILE}` が更新されない。
+  確認すべきは注入器の状態ではなく**リクエストが実際にその経路を通ったこと**（[D-018](decisions.md)）。
+  危なかったのは B-01 が偶然「終了コード 0」で終わっていたこと。見逃せば
+  「第3層が本番の PVC 削除を許可した」と誤読していた
+- **`default allow := false` を書かなかったことが効いた。** X-04（ポリシー未ロード）で
+  OPA は 200 + `result` 無しを返し、「評価して拒否した」と区別できた。
+  default を 1 行書いていたら、安全性が不明な操作に承認ボタンを出していた
+- **Rego の undefined は allow 側に倒れる。** 第2層をバイパスした入力はルールが発火せず通る。
+  層の順序は安全上の必要条件であって、整理のための並びではない
+- **第3層は input の真正性を検証できない。** environment と namespace を揃えて詐称されると通る。
+  実運用では RBAC / Admission Controller が最後の砦になる
+- **違反は複数返る。** Handoff 仕様書の通知パターン3 は 1 件しか想定していない（Phase 4 で要調整）
+
+### 積み残し（Phase 3 としては完了扱い）
+
+- [ ] decision のスキーマが Rego と `agents/schemas.py` で二重管理（片方を変えると Fail-Closed する）
+- [ ] 環境と namespace の対応が `opa/data.json` に固定（実運用ではクラスタ由来のデータにすべき）
+- [ ] Decision Log の外部永続化は未実施（`docker compose logs opa` で確認しただけ）
+- [ ] ポリシーの bundle 化・署名検証は未実施
+- [ ] `EscalationEvent` に承認期限・承認者ロールの判定材料が無い（Phase 4 で決める）
+
+### Phase 4 に持ち越す論点
+
+- **通知パターン3 は違反を複数表示できる形にする。** B-01 / B-04 で 2 件返った。
+  優先度付けでは解かないこと（通知の都合を Rego に持ち込むと第3層の責務が濁る）
+- **`EscalationEvent` に承認期限・承認者ロールの判定材料が無い。** ステートストア側に持たせるか
+  イベントに足すかを Phase 4 の設計で決める
+- **`policy_override`（人間が deny を上書きして実行した事実）は OPA の Decision Log に残らない。**
+  実行側で記録する必要がある（Handoff 仕様書 運用原則4）
+- **ボタンの `value` に入るのは Trace ID だけ**（運用原則2）。Phase 3 で導入済み（[D-016](decisions.md)）
+- **Slack 経路でも「届いたことの証拠」を先に決めてから実行する**（[D-018](decisions.md)）
+
+---
+
+## Phase 4 以降の準備タスク
 
 いずれも着手時に `design.md` を先に書く。
 
-### Phase 3 (OPA)
-
-- [ ] `docs/phases/phase3-opa/design.md` を書く
-- [ ] `opa/policy.rego` / `opa/policy_test.rego`
-- [ ] `docker compose --profile phase3 up -d` で OPA が起動することを確認
-- [ ] エージェント → OPA の HTTP 呼び出しを実装
-- [ ] **OPA 自体が単一障害点になる問題**の扱いを設計で決める（D-002 の影響欄）
-
 ### Phase 4 (Slack)
 
-- [ ] `docs/phases/phase4-slack/design.md` を書く
+- [ ] `docs/phases/phase4-slack/design.md` を書く。**Handoff 仕様書のどこまでを Phase 4 で扱うかを
+      先に固定する**（Phase 3 の design.md 第0章と同じ形の対応表を作る）
 - [ ] Slack App 作成、Bot トークンと署名シークレット取得
 - [ ] ngrok 等で Interactivity Request URL を用意（**ローカル URL では検証できない**）
 - [ ] `slack/handler.py`（Block Kit + Interactivity payload の受信・パース）
+- [ ] `EscalationEvent`（`kind` = `validation_failed` / `policy_denied` / `policy_unavailable`）を
+      通知パターン 2 / 3 / 4 に対応付ける。**パターン3 は違反を複数表示できる形にする**
+- [ ] 承認待ちアクションのステートストア（Trace ID がキー。運用原則4）
+- [ ] `policy_override` の監査記録（OPA の Decision Log には残らない）
 
 ### Phase 5 (E2E)
 

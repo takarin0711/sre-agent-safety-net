@@ -1,0 +1,38 @@
+/policies/policy_test.rego:146:
+data.sre.agent_test.test_u05_production_scale_to_nonzero_allowed: PASS (4.607208ms)
+/policies/policy_test.rego:258:
+data.sre.agent_test.test_n02_incomplete_input_is_allowed_by_design: PASS (7.657ms)
+/policies/policy_test.rego:92:
+data.sre.agent_test.test_u03_pod_delete_allowed_outside_production: PASS (5.16775ms)
+/policies/policy_test.rego:105:
+data.sre.agent_test.test_u04_production_mutating_denied_without_dry_run: PASS (4.821042ms)
+/policies/policy_test.rego:82:
+data.sre.agent_test.test_u03_pod_delete_denied_in_production: PASS (12.621542ms)
+/policies/policy_test.rego:119:
+data.sre.agent_test.test_u04_production_mutating_allowed_with_dry_run: PASS (13.941792ms)
+/policies/policy_test.rego:194:
+data.sre.agent_test.test_u07_namespace_environment_mismatch_denied: PASS (331.208µs)
+/policies/policy_test.rego:204:
+data.sre.agent_test.test_u07_namespace_environment_match_allowed: PASS (234µs)
+/policies/policy_test.rego:57:
+data.sre.agent_test.test_u02_pvc_delete_denied_in_all_environments: PASS (14.211125ms)
+/policies/policy_test.rego:135:
+data.sre.agent_test.test_u05_production_scale_to_zero_denied: PASS (6.934542ms)
+/policies/policy_test.rego:229:
+data.sre.agent_test.test_u08_every_violation_has_a_message: PASS (522.459µs)
+/policies/policy_test.rego:170:
+data.sre.agent_test.test_u06_protected_namespace_read_only_allowed: PASS (10.574125ms)
+/policies/policy_test.rego:244:
+data.sre.agent_test.test_u08_violated_rules_are_sorted: PASS (605.458µs)
+/policies/policy_test.rego:158:
+data.sre.agent_test.test_u05_staging_scale_to_zero_allowed: PASS (16.725084ms)
+/policies/policy_test.rego:182:
+data.sre.agent_test.test_u06_protected_namespace_mutating_denied: PASS (9.71375ms)
+/policies/policy_test.rego:70:
+data.sre.agent_test.test_u02_pod_delete_is_not_flagged_as_pvc_delete: PASS (17.475459ms)
+/policies/policy_test.rego:217:
+data.sre.agent_test.test_u08_multiple_violations_reported: PASS (10.126333ms)
+/policies/policy_test.rego:41:
+data.sre.agent_test.test_u01_read_only_allowed_in_all_environments: PASS (20.083375ms)
+--------------------------------------------------------------------------------
+PASS: 18/18

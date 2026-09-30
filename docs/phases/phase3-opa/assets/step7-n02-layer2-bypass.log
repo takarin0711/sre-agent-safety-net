@@ -1,0 +1,29 @@
+=== N-02: 第2層をバイパスして OPA に直接投げる ===
+--- 入力（必須フィールドが欠けている。第2層は通らない）---
+{
+  "operation": "kubectl_delete_pvc"
+}
+--- OPA の判定 ---
+{"decision_id":"e98e5b60-26d5-4a61-bd40-be84a40e1dec","result":{"allow":true,"violated_rules":[]}}
+
+
+--- 比較: 同じ操作でも第2層を通った完全な入力なら deny される ---
+{
+    "decision_id": "fcfc7eb2-02e6-4bb1-be5c-a8d9a78f8043",
+    "result": {
+        "allow": false,
+        "violated_rules": [
+            {
+                "message": "PVC の削除は不可逆なため自動実行を許可しません（対象: prod/payment-db-data、環境: production）",
+                "rule": "PROHIBIT_PVC_DELETE"
+            },
+            {
+                "message": "本番環境に対する破壊的操作 kubectl_delete_pvc は自動実行を許可しません（対象: prod/payment-db-data）",
+                "rule": "PROHIBIT_PRODUCTION_DESTRUCTIVE"
+            }
+        ]
+    }
+}
+--- 同じ入力を第2層に通すと何が起きるか（エージェント経路では第3層に到達しない）---
+{"event": "validation.error", "layer": "layer2_json_validator", "trace_id": "n02-layer2", "error_type": "ValidationError", "error_count": 4, "escalation": {"layer": "layer2_json_validator", "kind": "validation_failed", "trace_id": "n02-layer2", "reason": "第2層の構造検証に失敗しました（4 件）", "errors": [{"type": "missing", "loc": ["action_id"], "msg": "Field required", "input": {"operation": "kubectl_delete_pvc"}}, {"type": "missing", "loc": ["environment"], "msg": "Field required", "input": {"operation": "kubectl_delete_pvc"}}, {"type": "missing", "loc": ["target"], "msg": "Field required", "input": {"operation": "kubectl_delete_pvc"}}, {"type": "missing", "loc": ["reason"], "msg": "Field required", "input": {"operation": "kubectl_delete_pvc"}}], "action": null, "violated_rules": [], "raw_output": "{\n  \"operation\": \"kubectl_delete_pvc\"\n}\n", "original_request": "N-02", "occurred_at": "2026-09-30T05:20:12.807228Z"}}
+第2層の判定: [('missing', ('action_id',)), ('missing', ('environment',)), ('missing', ('target',)), ('missing', ('reason',))]

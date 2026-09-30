@@ -1,0 +1,17 @@
+=== 判定基準7: ポリシーが agents/ に漏れていないこと ===
+--- 環境名・操作名の出現箇所（agents/ 全体）---
+（schemas.py / prompts.py 以外には無し）
+
+--- schemas.py / prompts.py に残る理由: そこは「語彙の定義と提示」であって判定ではない ---
+agents/prompts.py:1
+agents/schemas.py:8
+
+--- 判定に使う語彙はすべて Rego 側（opa/）にある ---
+opa/data.json:6
+opa/policy.rego:17
+
+--- pytest でも強制している ---
+tests/test_layer3_policy.py::test_no_policy_literals_in_agent_code[policy.py] PASSED [ 33%]
+tests/test_layer3_policy.py::test_no_policy_literals_in_agent_code[main.py] PASSED [ 66%]
+tests/test_layer3_policy.py::test_no_policy_literals_in_agent_code[validation.py] PASSED [100%]
+======================= 3 passed, 24 deselected in 0.06s =======================
