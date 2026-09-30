@@ -4,6 +4,9 @@
 #   異常系 (第1層): LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=rate_limit docker compose up -d
 #   異常系 (第2層): LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=malformed \
 #                   FAULT_FIXTURE=v01_prose docker compose up -d
+#   異常系 (第3層): docker compose stop opa                      # X-01 接続不能
+#                   OPA_POLICY_DIR=./mocks/opa_faults/no_policy docker compose up -d opa   # X-04
+#                   OPA_POLICY_DIR=./mocks/opa_faults/allow_as_string docker compose up -d opa  # X-05
 #
 # エージェント本体 (agents/) はホストの venv から実行する。
 
@@ -51,13 +54,26 @@ services:
       FAULT_FIXTURE_DIR: /fixtures
       PORT: "8080"
 
-  # ── 第3層: OPA（Phase 3 以降。既定では起動しない）──────────
+  # ── 第3層: OPA ──────────────────────────────────────
+  # Phase 3 から既定で起動する（profiles を外した）。第3層の不在を
+  # 「たまたま起動していなかった」で誤魔化さないため（D-014 の趣旨）。
   opa:
-    image: openpolicyagent/opa:latest
+    # バージョンは固定する。検証の再現性のため latest を使わない。
+    image: openpolicyagent/opa:1.21.0
     container_name: safety-net-opa
-    profiles: ["phase3"]
     ports:
       - "8181:8181"
     volumes:
-      - ./opa:/policies:ro
-    command: ["run", "--server", "--addr", "0.0.0.0:8181", "/policies"]
+      # 既定は正本の ./opa。異常系 (X-04 / X-05) では mocks/opa_faults/* に差し替える。
+      - ${OPA_POLICY_DIR:-./opa}:/policies:ro
+    command:
+      - "run"
+      - "--server"
+      - "--addr"
+      - "0.0.0.0:8181"
+      # ポリシーファイルの変更を再起動なしで反映する。M-01（ポリシーの独立変更）で使う。
+      - "--watch"
+      # 判定の記録を stdout に出す。これが「層の外側からの裏取り」の主エビデンスになる
+      # （docker compose logs opa）。D-009 / D-014 の第3層版。
+      - "--set=decision_logs.console=true"
+      - "/policies"

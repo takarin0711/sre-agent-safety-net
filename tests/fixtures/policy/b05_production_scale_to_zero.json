@@ -1,0 +1,9 @@
+{
+  "action_id": "act-b05",
+  "environment": "production",
+  "operation": "kubectl_scale",
+  "target": {"kind": "deployment", "name": "payment-api", "namespace": "prod"},
+  "replicas": 0,
+  "reason": "暴走しているため一旦レプリカ数を 0 にして停止させる",
+  "dry_run": true
+}

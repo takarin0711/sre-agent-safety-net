@@ -1,0 +1,9 @@
+{
+  "action_id": "act-b04",
+  "environment": "production",
+  "operation": "kubectl_rollout_restart",
+  "target": {"kind": "deployment", "name": "coredns", "namespace": "kube-system"},
+  "replicas": null,
+  "reason": "名前解決が不安定なため CoreDNS を再起動する",
+  "dry_run": true
+}

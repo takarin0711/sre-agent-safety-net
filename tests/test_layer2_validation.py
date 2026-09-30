@@ -37,7 +37,7 @@ def errors_of(exc: ValidationError) -> list[tuple[str, tuple]]:
 # ── P-02 正常系 ────────────────────────────────────────
 
 def test_p02_full_fixture_is_typed() -> None:
-    action = validate_action(fixture("valid_rollout_restart.json"), original_request="P-02")
+    action = validate_action(fixture("valid_rollout_restart.json"), original_request="P-02", trace_id="test-trace")
 
     assert isinstance(action, ProposedAction)
     assert action.environment is Environment.PRODUCTION
@@ -50,7 +50,7 @@ def test_p02_full_fixture_is_typed() -> None:
 
 def test_p02_optional_fields_default() -> None:
     """replicas / dry_run を省略した最小形。dry_run の既定は True（安全側）。"""
-    action = validate_action(fixture("valid_minimal.json"), original_request="P-02")
+    action = validate_action(fixture("valid_minimal.json"), original_request="P-02", trace_id="test-trace")
 
     assert action.replicas is None
     assert action.dry_run is True
@@ -58,7 +58,7 @@ def test_p02_optional_fields_default() -> None:
 
 @pytest.mark.parametrize("name,expected", [("valid_replicas_min.json", 0), ("valid_replicas_max.json", 100)])
 def test_p02_replicas_boundary_values(name: str, expected: int) -> None:
-    assert validate_action(fixture(name), original_request="P-02").replicas == expected
+    assert validate_action(fixture(name), original_request="P-02", trace_id="test-trace").replicas == expected
 
 
 @pytest.mark.parametrize("replicas", [-1, 101])
@@ -67,7 +67,7 @@ def test_p02_replicas_out_of_range_is_rejected(replicas: int) -> None:
     payload["replicas"] = replicas
 
     with pytest.raises(ValidationError) as excinfo:
-        validate_action(json.dumps(payload), original_request="P-02")
+        validate_action(json.dumps(payload), original_request="P-02", trace_id="test-trace")
 
     assert [loc for _, loc in errors_of(excinfo.value)] == [("replicas",)]
 
@@ -82,7 +82,7 @@ def test_p02_all_enum_values_are_accepted(environment: Environment, operation: O
     # kubectl_scale のときだけ replicas が必須（相互依存は下の V-04 で検証する）
     payload["replicas"] = 3 if operation is Operation.SCALE else None
 
-    action = validate_action(json.dumps(payload), original_request="P-02")
+    action = validate_action(json.dumps(payload), original_request="P-02", trace_id="test-trace")
 
     assert action.environment is environment
     assert action.operation is operation
@@ -90,7 +90,7 @@ def test_p02_all_enum_values_are_accepted(environment: Environment, operation: O
 
 def test_p02_validated_action_is_opa_input_ready() -> None:
     """model_dump(mode="json") がそのまま第3層 (OPA) の input になること（判定基準5 の前提）。"""
-    action = validate_action(fixture("valid_scale.json"), original_request="P-02")
+    action = validate_action(fixture("valid_scale.json"), original_request="P-02", trace_id="test-trace")
 
     dumped = action.model_dump(mode="json")
     roundtrip = json.loads(json.dumps(dumped, ensure_ascii=False))
@@ -138,7 +138,7 @@ def test_invalid_input_is_detected_with_reason(
     「落ちた」だけでは不合格。errors() から理由が特定できることまでを確認する。
     """
     with pytest.raises(ValidationError) as excinfo:
-        validate_action(content, original_request="V 系の単体検証")
+        validate_action(content, original_request="V 系の単体検証", trace_id="test-trace")
 
     assert expected in errors_of(excinfo.value)
     for detail in excinfo.value.errors():
@@ -155,7 +155,7 @@ def test_v01_code_fence_is_not_stripped() -> None:
     assert "```json" in content  # fixture 自体がフェンスを含んでいること
 
     with pytest.raises(ValidationError):
-        validate_action(content, original_request="V-01")
+        validate_action(content, original_request="V-01", trace_id="test-trace")
 
 
 # ── D-01 決定性（判定基準2）──────────────────────────────
@@ -170,7 +170,7 @@ def test_d01_detection_is_deterministic(_id: str, content: str | None, _expected
     observed: list[str] = []
     for _ in range(10):
         with pytest.raises(ValidationError) as excinfo:
-            validate_action(content, original_request="D-01")
+            validate_action(content, original_request="D-01", trace_id="test-trace")
         observed.append(excinfo.value.json(include_url=False))
 
     assert len(set(observed)) == 1
@@ -179,7 +179,7 @@ def test_d01_detection_is_deterministic(_id: str, content: str | None, _expected
 def test_d01_valid_input_is_deterministic() -> None:
     dumps = {
         json.dumps(
-            validate_action(fixture("valid_scale.json"), original_request="D-01").model_dump(mode="json"),
+            validate_action(fixture("valid_scale.json"), original_request="D-01", trace_id="test-trace").model_dump(mode="json"),
             sort_keys=True,
         )
         for _ in range(10)
@@ -195,7 +195,7 @@ def test_n01_structurally_valid_but_dangerous_action_passes() -> None:
     ここで止まる場合、第2層がポリシー判定を始めている（D-002 違反）ため不合格。
     本番環境の PVC 削除を止めるのは第3層 (OPA) の責務である。
     """
-    action = validate_action(fixture("n01_dangerous_delete_pvc.json"), original_request="N-01")
+    action = validate_action(fixture("n01_dangerous_delete_pvc.json"), original_request="N-01", trace_id="test-trace")
 
     assert action.environment is Environment.PRODUCTION
     assert action.operation is Operation.DELETE_PVC
@@ -207,12 +207,17 @@ def test_n01_structurally_valid_but_dangerous_action_passes() -> None:
 
 def test_escalation_event_contains_layer_reason_and_original_request() -> None:
     with pytest.raises(ValidationError) as excinfo:
-        validate_action(fixture("v06_environment_prod.json"), original_request="本番の payment-api が異常")
+        validate_action(
+            fixture("v06_environment_prod.json"),
+            original_request="本番の payment-api が異常",
+            trace_id="test-trace",
+        )
 
     event = build_escalation_event(
         excinfo.value,
         raw_output=fixture("v06_environment_prod.json"),
         original_request="本番の payment-api が異常",
+        trace_id="test-trace",
     )
 
     assert event.layer == "layer2_json_validator"
@@ -227,7 +232,7 @@ def test_escalation_event_contains_layer_reason_and_original_request() -> None:
 def test_escalation_event_is_logged_and_exception_is_not_swallowed(capsys) -> None:
     """失敗が構造化ログに出たうえで例外が再送出されること（例外を握り潰さない）。"""
     with pytest.raises(ValidationError):
-        validate_action(fixture("v07_extra_key.json"), original_request="R-01 相当の単体確認")
+        validate_action(fixture("v07_extra_key.json"), original_request="R-01 相当の単体確認", trace_id="test-trace")
 
     logged = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")]
     error_logs = [entry for entry in logged if entry.get("event") == "validation.error"]
@@ -241,7 +246,7 @@ def test_escalation_event_is_logged_and_exception_is_not_swallowed(capsys) -> No
 
 
 def test_validation_ok_is_logged_with_opa_input(capsys) -> None:
-    validate_action(fixture("valid_scale.json"), original_request="P-02")
+    validate_action(fixture("valid_scale.json"), original_request="P-02", trace_id="test-trace")
 
     logged = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")]
     ok_logs = [entry for entry in logged if entry.get("event") == "validation.ok"]

@@ -1,0 +1,9 @@
+{
+  "action_id": "act-n01a",
+  "environment": "staging",
+  "operation": "kubectl_rollout_restart",
+  "target": {"kind": "deployment", "name": "payment-api", "namespace": "prod"},
+  "replicas": null,
+  "reason": "ステージングの再起動として実行する",
+  "dry_run": false
+}

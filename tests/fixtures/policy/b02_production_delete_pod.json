@@ -1,0 +1,9 @@
+{
+  "action_id": "act-b02",
+  "environment": "production",
+  "operation": "kubectl_delete_pod",
+  "target": {"kind": "pod", "name": "payment-api-7d9f8b6c5-x2vlq", "namespace": "prod"},
+  "replicas": null,
+  "reason": "CrashLoopBackOff の Pod を削除して再作成させる",
+  "dry_run": false
+}

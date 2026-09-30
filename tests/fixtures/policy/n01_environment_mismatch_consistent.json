@@ -1,0 +1,9 @@
+{
+  "action_id": "act-n01b",
+  "environment": "staging",
+  "operation": "kubectl_rollout_restart",
+  "target": {"kind": "deployment", "name": "payment-api", "namespace": "staging"},
+  "replicas": null,
+  "reason": "environment と namespace の両方を詐称した場合。第3層は input の真正性を検証できない",
+  "dry_run": false
+}

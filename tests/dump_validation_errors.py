@@ -7,7 +7,7 @@ D-01（決定性）では本スクリプトを別プロセスで 10 回実行し
 
     python -m tests.dump_validation_errors <出力先.json>
 
-errors() の JSON は引数のファイルへ、validate_action() 自身の構造化ログは標準出力へ出る
+errors() の JSON は引数のファイルへ、validate_action(, trace_id="evidence-trace") 自身の構造化ログは標準出力へ出る
 （エスカレーションイベントもエビデンスなので、標準出力も別ファイルに残すとよい）。
 """
 
@@ -27,7 +27,7 @@ def main(out_path: str) -> int:
     dumped: list[dict] = []
     for scenario, content, _expected in INVALID_CASES:
         try:
-            validate_action(content, original_request="エビデンス生成")
+            validate_action(content, original_request="エビデンス生成", trace_id="evidence-trace")
         except ValidationError as exc:
             dumped.append({"scenario": scenario, "errors": json.loads(exc.json(include_url=False))})
         else:  # pragma: no cover - ここに来たら判定基準1 が崩れている

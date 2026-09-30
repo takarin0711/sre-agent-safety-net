@@ -1,0 +1,13 @@
+{
+  "catalog": {
+    "read_only_operations": ["kubectl_get", "kubectl_describe", "kubectl_logs"],
+    "mutating_operations": ["kubectl_rollout_restart", "kubectl_scale"],
+    "destructive_operations": ["kubectl_delete_pod", "kubectl_delete_pvc"],
+    "protected_namespaces": ["kube-system", "kube-public", "kube-node-lease"],
+    "environment_namespaces": {
+      "production": ["prod"],
+      "staging": ["staging"],
+      "development": ["dev"]
+    }
+  }
+}

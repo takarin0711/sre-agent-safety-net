@@ -14,28 +14,32 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 
 from pydantic_core import InitErrorDetails, PydanticCustomError, ValidationError
 
-from agents.log import log
+from agents.log import json_safe_errors, log
 from agents.schemas import EscalationEvent, ProposedAction
 
 LAYER = "layer2_json_validator"
 
 
-def validate_action(content: str | None, *, original_request: str) -> ProposedAction:
+def validate_action(
+    content: str | None, *, original_request: str, trace_id: str
+) -> ProposedAction:
     """第1層の出力文字列を検証し、型付きの ProposedAction にする。
 
     失敗時は EscalationEvent を構造化ログに出してから ValidationError を送出する。
     呼び出し側が捕捉すべき例外型はこの 1 つだけである（design.md 証明すること 3）。
+
+    ``trace_id`` は全層を貫く相関 ID（Phase 3 で導入。docs/decisions.md D-016）。
+    第2層はこれを判定に使わず、イベントとログに載せるだけである。
     """
     if content is None or not content.strip():
         # 「文字列ですらない / 中身が無い」は Pydantic に渡せないため、層の内部で検知する。
         # ただし例外型は揃える。ハンドオフ経路を 1 本に保つのが目的（design.md 3.5）。
         exc = _empty_content_error(content)
-        _handoff(exc, raw_output=content, original_request=original_request)
+        _handoff(exc, raw_output=content, original_request=original_request, trace_id=trace_id)
         raise exc
 
     try:
@@ -44,12 +48,13 @@ def validate_action(content: str | None, *, original_request: str) -> ProposedAc
         # 第2層の失敗が単一の例外型になる。
         action = ProposedAction.model_validate_json(content)
     except ValidationError as exc:
-        _handoff(exc, raw_output=content, original_request=original_request)
+        _handoff(exc, raw_output=content, original_request=original_request, trace_id=trace_id)
         raise
 
     log(
         event="validation.ok",
         layer=LAYER,
+        trace_id=trace_id,
         action=action.model_dump(mode="json"),  # そのまま第3層 (OPA) の input になる形
     )
     return action
@@ -60,12 +65,15 @@ def build_escalation_event(
     *,
     raw_output: str | None,
     original_request: str,
+    trace_id: str,
 ) -> EscalationEvent:
     """ValidationError を人間に引き渡せる形に構造化する。"""
     return EscalationEvent(
         layer=LAYER,
+        kind="validation_failed",  # Handoff 仕様書の通知パターン2
+        trace_id=trace_id,
         reason=f"第2層の構造検証に失敗しました（{exc.error_count()} 件）",
-        errors=_json_safe_errors(exc),
+        errors=json_safe_errors(exc),
         raw_output=raw_output,
         original_request=original_request,
         occurred_at=datetime.now(UTC),
@@ -77,25 +85,20 @@ def _handoff(
     *,
     raw_output: str | None,
     original_request: str,
+    trace_id: str,
 ) -> None:
     """エスカレーションイベントを生成して構造化ログに出す。例外は握り潰さない。"""
-    event = build_escalation_event(exc, raw_output=raw_output, original_request=original_request)
+    event = build_escalation_event(
+        exc, raw_output=raw_output, original_request=original_request, trace_id=trace_id
+    )
     log(
         event="validation.error",
         layer=LAYER,
+        trace_id=trace_id,
         error_type=type(exc).__name__,
         error_count=exc.error_count(),
         escalation=event.model_dump(mode="json"),
     )
-
-
-def _json_safe_errors(exc: ValidationError) -> list[dict]:
-    """ValidationError.errors() を JSON 化可能な形で取り出す。
-
-    errors() の loc はタプル、ctx には任意のオブジェクトが入りうるため、
-    Pydantic 自身のシリアライザ（.json()）を経由させる。
-    """
-    return json.loads(exc.json(include_url=False))
 
 
 def _empty_content_error(content: str | None) -> ValidationError:

@@ -95,18 +95,102 @@ class ProposedAction(BaseModel):
         return self
 
 
+# ── 第3層 (OPA) との境界 ─────────────────────────────────────────
+#
+# 第2層と同じく strict / extra="forbid" を付ける。第2層が「LLM の出力を信じない」層なら、
+# ここは「ポリシーエンジンの応答を信じない」ための設定である（docs/decisions.md D-017）。
+# allow は実行可否そのものなので、ここが素通りすると多層防御の最後の 1 枚が無効になる。
+# 第2層と同じ値だが、層ごとに理由が違うため別名で定義する。
+LAYER3_MODEL_CONFIG = ConfigDict(extra="forbid", strict=True)
+
+
+class ViolatedRule(BaseModel):
+    """ポリシー違反 1 件。拒否は必ず理由とセットで返す（設計原則3）。"""
+
+    model_config = LAYER3_MODEL_CONFIG
+
+    rule: str = Field(min_length=1)  # 規則 ID（例: PROHIBIT_PVC_DELETE）
+    message: str = Field(min_length=1)  # 人間が読む理由
+
+
+class PolicyDecision(BaseModel):
+    """第3層の判定結果（OPA の decision 文書）。
+
+    ``allow`` と理由を同時に受け取る。2 回問い合わせるとその間にポリシーが差し替わりうるし、
+    片方だけ成功する失敗モードが増えるため（design.md 3.1）。
+    """
+
+    model_config = LAYER3_MODEL_CONFIG
+
+    allow: bool
+    violated_rules: list[ViolatedRule] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _decision_must_be_self_consistent(self) -> PolicyDecision:
+        """理由なき拒否も、違反つきの許可も、ポリシー側のバグである。
+
+        どちらも「評価不能」として扱い、allow には倒さない（D-017）。
+        呼び出し側は ValidationError を PolicyUnavailableError に正規化する。
+        """
+        if self.allow and self.violated_rules:
+            raise PydanticCustomError(
+                "allow_with_violations",
+                "allow=true なのに violated_rules が {count} 件あります",
+                {"count": len(self.violated_rules)},
+            )
+        if not self.allow and not self.violated_rules:
+            raise PydanticCustomError(
+                "deny_without_reason",
+                "allow=false なのに理由がありません（設計原則3 違反）",
+                {},
+            )
+        return self
+
+
+class OpaResponse(BaseModel):
+    """``POST /v1/data/...`` のレスポンス全体。
+
+    エンベロープだけは ``extra="ignore"`` とする。OPA が ``decision_id`` / ``metrics`` /
+    ``provenance`` を足すためであり、ここは「層をまたぐデータ」ではなく OPA の API 表現である。
+    中身の ``PolicyDecision`` は forbid のままにする。
+    """
+
+    model_config = ConfigDict(extra="ignore", strict=True)
+
+    # ポリシーが読み込まれていない場合、OPA は 200 と {} を返す（result が無い）。
+    # これを allow: false に潰さない。「評価して拒否した」と「ポリシーが無い」は
+    # 人間に見せるべきものが違う（D-015 / D-017）。
+    result: PolicyDecision | None = None
+    decision_id: str | None = None  # Decision Log との突合に使う
+
+
 class EscalationEvent(BaseModel):
     """層の失敗を人間に引き渡すためのイベント（architecture.md 失敗時の共通フロー 2）。
 
-    「どの層で」「何が」「元のリクエストは何だったか」を含む。
-    Phase 4 で Block Kit に載せる際に不足があれば、そのとき追加する（未決事項3）。
+    「どの層で」「何が」「元のリクエストは何だったか」を含む。層ごとにイベント型を分けず、
+    ``kind`` で区別する。ハンドオフ経路を 1 本に保つため（phase3 design.md 3.6）。
+    Slack の通知パターン番号（1〜5）は通知層の関心事なので、ここには持たせない。
+
+    ``kind`` と Handoff 仕様書の通知パターンの対応:
+
+    - ``validation_failed``   第2層の ValidationError            → 通知パターン2
+    - ``policy_denied``       第3層が allow: false（理由つき）   → 通知パターン3（承認ボタンあり）
+    - ``policy_unavailable``  第3層が評価不能（Fail-Closed）     → 通知パターン4（ボタンなし）
     """
 
     model_config = LAYER2_MODEL_CONFIG
 
     layer: Literal["layer1_litellm", "layer2_json_validator", "layer3_opa"]
+    kind: Literal["validation_failed", "policy_denied", "policy_unavailable"]
+    # 全層・OPA の Decision Log・Phase 4 のステートストアを貫く相関 ID（D-016）。
+    # Slack のボタン value に入るのもこの値だけである（Handoff 仕様書 運用原則2）。
+    trace_id: str
     reason: str  # 人間が読んで判断できる文言
     errors: list[dict] = Field(default_factory=list)  # ValidationError の内容（JSON 化可能な形）
+    # 第3層の拒否で使う。承認対象のアクションをストアから復元できるだけの情報を載せる
+    # （Handoff 仕様書 運用原則1・2）。第2層の失敗時は検証を通っていないので None。
+    action: ProposedAction | None = None
+    violated_rules: list[ViolatedRule] = Field(default_factory=list)
     raw_output: str | None = None  # LLM の生出力（何が来たのかを人間が見る）
     original_request: str  # 元のインシデント記述
     occurred_at: datetime

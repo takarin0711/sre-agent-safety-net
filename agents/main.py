@@ -9,9 +9,16 @@ LiteLLM Proxy 側の関心事とする。フェイルオーバーの有無によ
     python -m agents.main --prompt "hello"                 # 第2層を通らない（Phase 1）
     python -m agents.main --prompt "hello" --repeat 20 --interval 15   # F-05 用
     python -m agents.main --incident "本番の payment-api の Pod が CrashLoopBackOff"
-                                                           # 第2層を通る（Phase 2）
+                                                           # 第2層 → 第3層（Phase 3）
+    python -m agents.main --incident "..." --no-policy      # 第2層で止める（Phase 2 の経路）
 
---incident の終了コード: 検証成功 0 / ValidationError・呼び出し失敗 1（判定基準3）。
+--incident の終了コードは分岐を一意に表す（phase3 design.md 3.8）。
+
+    0  allow: true → 実行層（dry-run）まで到達
+    1  第1層の呼び出し失敗、または第2層の ValidationError
+    2  環境変数の設定不足
+    3  第3層が allow: false（Handoff 仕様書の通知パターン3）
+    4  第3層が評価不能・Fail-Closed（同 パターン4）
 """
 
 from __future__ import annotations
@@ -27,11 +34,21 @@ from openai import OpenAI
 from pydantic_core import ValidationError
 
 from agents.log import log
+from agents.policy import PolicyUnavailableError, evaluate_action
 from agents.prompts import build_incident_messages
+from agents.schemas import ProposedAction
 from agents.validation import validate_action
 
 # エージェントから見える唯一のモデル名。実デプロイの解決は LiteLLM に委ねる。
 LOGICAL_MODEL = "sre-agent-model"
+
+# 終了コード。シナリオ実行スクリプトが分岐を一意に判定できるようにする。
+# 値が大きいほど重い（--repeat では最も重いものを返す）。
+EXIT_OK = 0
+EXIT_LAYER1_OR_2_FAILED = 1
+EXIT_CONFIG_ERROR = 2
+EXIT_POLICY_DENIED = 3
+EXIT_POLICY_UNAVAILABLE = 4
 
 
 def litellm_headers(headers: object) -> dict[str, str]:
@@ -48,16 +65,23 @@ def litellm_headers(headers: object) -> dict[str, str]:
 
 
 def call_llm(
-    client: OpenAI, messages: list[dict[str, str]], attempt: int
+    client: OpenAI,
+    messages: list[dict[str, str]],
+    attempt: int,
+    trace_id: str | None = None,
 ) -> tuple[str | None, bool]:
     """1 リクエスト分の呼び出しとログ出力。
 
     戻り値は (content, ok)。ok=False のときは第1層の呼び出し自体が失敗している。
+
+    trace_id は --incident 経路でのみ渡す。--prompt 経路（Phase 1）のログ出力を
+    1 バイトも変えないため、None のときはフィールドごと出さない。
     """
     request_id = str(uuid.uuid4())
     started = time.monotonic()
+    trace = {"trace_id": trace_id} if trace_id else {}
 
-    log(event="request.start", request_id=request_id, attempt=attempt, model=LOGICAL_MODEL)
+    log(event="request.start", **trace, request_id=request_id, attempt=attempt, model=LOGICAL_MODEL)
 
     try:
         # with_raw_response を使い、ヘッダも観測できるようにする。
@@ -69,6 +93,7 @@ def call_llm(
         # ここで握り潰さないことが判定基準4（Phase 1 の N-01）の検証対象そのもの。
         log(
             event="request.error",
+            **trace,
             request_id=request_id,
             attempt=attempt,
             elapsed_sec=round(time.monotonic() - started, 3),
@@ -83,6 +108,7 @@ def call_llm(
 
     log(
         event="request.success",
+        **trace,
         request_id=request_id,
         attempt=attempt,
         elapsed_sec=elapsed,
@@ -99,19 +125,62 @@ def call_once(client: OpenAI, prompt: str, attempt: int) -> int:
     return 0 if ok else 1
 
 
-def call_incident_once(client: OpenAI, incident: str, attempt: int) -> int:
-    """Phase 2 の経路。第1層の出力を第2層 (JSON Validator) に通す。"""
-    content, ok = call_llm(client, build_incident_messages(incident), attempt)
+def execute_dry_run(action: ProposedAction, trace_id: str) -> None:
+    """実行層。PoC では構造化ログを出すだけで、実 kubectl は発行しない。
+
+    アクションの dry_run が false でも発行しない（CLAUDE.md）。この層を置く目的は
+    「allow: true が実行に繋がっていること」を示すことであり、実行そのものの検証ではない。
+    したがって allow: false / 評価不能のときにこのログが**出ていないこと**が、
+    拒否と Fail-Closed の実効性のエビデンスになる（判定基準4）。
+    """
+    log(
+        event="execution.dry_run",
+        trace_id=trace_id,
+        action=action.model_dump(mode="json"),
+        note="PoC のため実際のコマンドは発行しない",
+    )
+
+
+def call_incident_once(
+    client: OpenAI, incident: str, attempt: int, *, skip_policy: bool = False
+) -> int:
+    """第1層 → 第2層 → 第3層 → 実行層（dry-run）。戻り値は終了コード。
+
+    1 インシデント処理 = 1 Trace ID。全層のログ・OPA の Decision Log・
+    エスカレーションイベントを貫く相関 ID になる（docs/decisions.md D-016）。
+    """
+    trace_id = str(uuid.uuid4())
+
+    content, ok = call_llm(client, build_incident_messages(incident), attempt, trace_id)
     if not ok:
-        return 1
+        return EXIT_LAYER1_OR_2_FAILED
 
     try:
         # 例外は握り潰さない。第2層の失敗は検知してハンドオフすることが検証対象。
         # ValidationError の内容とエスカレーションイベントは validate_action() が出力する。
-        validate_action(content, original_request=incident)
+        action = validate_action(content, original_request=incident, trace_id=trace_id)
     except ValidationError:
-        return 1
-    return 0
+        return EXIT_LAYER1_OR_2_FAILED
+
+    if skip_policy:
+        # Phase 2 の経路を再現するためのフラグ。第3層には問い合わせない。
+        return EXIT_OK
+
+    try:
+        # 第2層を通過したものだけを第3層に渡す。構造未保証のデータを Rego に渡すと、
+        # 欠落したフィールドを参照するルールが undefined になって発火せず、
+        # 違反ゼロ = allow: true に化ける（design.md 2.2 / N-02）。
+        decision = evaluate_action(action, trace_id=trace_id, original_request=incident)
+    except PolicyUnavailableError:
+        # Fail-Closed。評価できない以上、実行には進まない（D-015）。
+        return EXIT_POLICY_UNAVAILABLE
+
+    if not decision.allow:
+        # 承認は待たない。イベントを出して終了する（Handoff 仕様書「App は待機せず解放」）。
+        return EXIT_POLICY_DENIED
+
+    execute_dry_run(action, trace_id)
+    return EXIT_OK
 
 
 def main() -> int:
@@ -120,7 +189,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="SRE エージェント（PoC 検証用）")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--prompt", help="LLM に送るプロンプト（第2層を通らない Phase 1 の経路）")
-    mode.add_argument("--incident", help="インシデント記述（第2層を通る Phase 2 の経路）")
+    mode.add_argument("--incident", help="インシデント記述（第2層 → 第3層を通る経路）")
+    parser.add_argument(
+        "--no-policy",
+        action="store_true",
+        help="第3層に問い合わせず第2層で止める（Phase 2 の経路の再現用）",
+    )
     parser.add_argument("--repeat", type=int, default=1, help="繰り返し回数（F-05 / L-01 用）")
     parser.add_argument("--interval", type=float, default=0.0, help="繰り返し間隔（秒）")
     args = parser.parse_args()
@@ -129,21 +203,25 @@ def main() -> int:
     api_key = os.environ.get("LITELLM_MASTER_KEY")
     if not base_url or not api_key:
         print("OPENAI_BASE_URL と LITELLM_MASTER_KEY を .env に設定してください", file=sys.stderr)
-        return 2
+        return EXIT_CONFIG_ERROR
 
     client = OpenAI(base_url=base_url, api_key=api_key)
 
-    failures = 0
+    codes: list[int] = []
     for attempt in range(1, args.repeat + 1):
         if args.incident is not None:
-            failures += call_incident_once(client, args.incident, attempt)
+            codes.append(
+                call_incident_once(client, args.incident, attempt, skip_policy=args.no_policy)
+            )
         else:
-            failures += call_once(client, args.prompt, attempt)
+            codes.append(call_once(client, args.prompt, attempt))
         if attempt < args.repeat and args.interval > 0:
             time.sleep(args.interval)
 
+    failures = sum(1 for code in codes if code != EXIT_OK)
     log(event="run.finished", total=args.repeat, failures=failures)
-    return 1 if failures else 0
+    # --repeat では最も重い結果を返す（4 > 3 > 1 > 0）。
+    return max(codes, default=EXIT_OK)
 
 
 if __name__ == "__main__":

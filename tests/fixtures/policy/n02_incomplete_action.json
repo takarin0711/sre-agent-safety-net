@@ -1,0 +1,3 @@
+{
+  "operation": "kubectl_delete_pvc"
+}
