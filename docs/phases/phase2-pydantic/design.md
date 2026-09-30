@@ -393,12 +393,12 @@ V 系（単体）→ D-01（決定性）→ P-01（実 LLM 正常系）→ L-01�
 
 実装:
 
-- [ ] `agents/schemas.py`（`ProposedAction` / `TargetResource` / enum / `EscalationEvent`）
-- [ ] `agents/validation.py`（`validate_action()`。第2層の唯一の入口）
-- [ ] `agents/main.py` に `--incident` 経路を追加（`--prompt` は変更しない）
-- [ ] `tests/fixtures/`（V-01〜V-08 + 正常系。構文が壊れているものは `.txt` にする）
-- [ ] `tests/test_layer2_validation.py`（V 系 + D-01 + N-01）
-- [ ] `mocks/fault_injector.py` に `FAULT_MODE=malformed` を追加（既存モードは変更しない）
+- [x] `agents/schemas.py`（`ProposedAction` / `TargetResource` / enum / `EscalationEvent`）
+- [x] `agents/validation.py`（`validate_action()`。第2層の唯一の入口）
+- [x] `agents/main.py` に `--incident` 経路を追加（`--prompt` は変更しない）
+- [x] `tests/fixtures/`（V-01〜V-08 + 正常系。構文が壊れているものは `.txt` にする）
+- [x] `tests/test_layer2_validation.py`（V 系 + D-01 + N-01）
+- [x] `mocks/fault_injector.py` に `FAULT_MODE=malformed` を追加（既存モードは変更しない）
 
 実行:
 
