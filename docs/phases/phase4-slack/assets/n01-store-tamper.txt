@@ -1,0 +1,34 @@
+N-01 限界の実演: ストアの event_json を直接書き換えてから承認する — 2026-10-01
+
+「承認ボタンの value は Trace ID だけ」（D-020）という設計は、**Slack のペイロードの詐称**を
+無意味にする。ではストアそのものを書き換えられたらどうなるかを実測した。
+受信側の駆動は実機のボタンではなく署名つきの block_actions（G-06 と同じ手口）。
+通知そのものは実 Slack の DM に出してある。
+
+── 仕掛けた改変（var/handoff.sqlite3 を直接 UPDATE）
+n01a-3  action.dry_run: false -> "false"        型として不正（bool -> str）
+n01b-3  action.target.name: payment-db-data -> billing-db-data
+        action.reason: 承認者が見た文面とは別物に差し替え   型としては完全に正しい
+
+── handler のログ（抜粋）
+{"event": "handoff.received", "layer": "escalation_slack", "trace_id": "n01a-3", "actor": "U-APPROVER", "action_id": "approve_action", "slack_retry_num": null}
+{"event": "handoff.restore_failed", "layer": "escalation_slack", "trace_id": "n01a-3", "actor": "U-APPROVER", "detail": "ストアから承認対象を復元できませんでした（ValidationError）", "errors": [{"type": "bool_type", "loc": ["action", "dry_run"], "msg": "Input should be a valid boolean", "input": "false"}]}
+{"event": "handoff.received", "layer": "escalation_slack", "trace_id": "n01b-3", "actor": "U-APPROVER", "action_id": "approve_action", "slack_retry_num": null}
+{"event": "execution.dry_run", "trace_id": "n01b-3", "action": {"action_id": "act-0006", "environment": "production", "operation": "kubectl_delete_pvc", "target": {"kind": "pvc", "name": "billing-db-data", "namespace": "prod"}, "replicas": null, "reason": "改変された理由（承認者が見た文面とは別物）", "dry_run": false}, "note": "PoC のため実際のコマンドは発行しない"}
+{"event": "handoff.executed", "layer": "escalation_slack", "trace_id": "n01b-3", "actor": "U-APPROVER", "override_kind": "policy_override"}
+
+── ストアの最終状態
+n01a-3  execution_failed  実行層に到達していない（execution.dry_run の行が無い）
+n01b-3  executed          **改変後の billing-db-data で実行層に到達した**
+
+── 結論（限界の明示）
+1. **型として不正な改変は決定的に弾ける。** D-020 の「復元したレコードを strict に再検証する」が
+   そのまま効き、ValidationError の loc まで残る。T-07 の実機版。
+2. **型として正しい別アクションへの改変は弾けない。** 承認者は payment-db-data の削除を承認したが、
+   実行層に届いたのは billing-db-data である。第2層は「形」しか見ないので当然であり、
+   これは欠陥ではなく責務境界（Phase 2 の N-01 と同じ構図）。
+   **ストアへの書き込み権限を持つ者は、承認の意味を書き換えられる。**
+3. したがってこの PoC で「人間の承認」が担保しているのは
+   **「押した時点で画面に出ていた内容」ではなく「押した事実」**である。
+   両者を一致させるには、通知した内容のダイジェストを押下時に照合する（value に入れるのではなく
+   ストアと別系統で保持する）か、ストアを追記のみの監査ログに倒す必要がある。提言に回す。

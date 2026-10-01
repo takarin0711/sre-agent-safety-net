@@ -1,0 +1,47 @@
+E-04 chat.update だけを失敗させる — 2026-10-01
+
+送出は実 Slack、更新だけ injector（FAULT_MODE=server_error）に向けた。
+handler を SLACK_API_BASE_URL=http://localhost:8080/api で起動し直し、
+署名つきの block_actions で承認を駆動した（ボタンの押下は G-06 と同じ手口で代替）。
+
+見たいのは「承認と実行は成立し、UI だけが古くなること」と
+「そのとき正本はストアであること」である（design.md 3.10）。
+
+── 注入が効いていることの裏取り（D-018）
+safety-net-fault-injector  | 192.168.65.1 - - [01/Oct/2026 07:25:55] fault_mode=server_error path=/api/chat.update
+safety-net-fault-injector  | 192.168.65.1 - - [01/Oct/2026 07:25:55] "POST /api/chat.update HTTP/1.1" 500 -
+
+── handler のログ
+{"event": "handoff.received", "layer": "escalation_slack", "trace_id": "e04-3", "actor": "U-APPROVER", "action_id": "approve_action", "slack_retry_num": null}
+{"event": "execution.dry_run", "trace_id": "e04-3", "action": {"action_id": "act-0006", "environment": "production", "operation": "kubectl_delete_pvc", "target": {"kind": "pvc", "name": "payment-db-data", "namespace": "prod"}, "replicas": null, "reason": "ディスクが逼迫しているため PVC を削除して再作成する", "dry_run": false}, "note": "PoC のため実際のコマンドは発行しない"}
+{"event": "handoff.executed", "layer": "escalation_slack", "trace_id": "e04-3", "actor": "U-APPROVER", "override_kind": "policy_override"}
+{"event": "slack.failed", "layer": "escalation_slack", "trace_id": "e04-3", "failure": "api_error", "detail": "{'message': 'injected fault: server_error', 'type': 'internal_server_error', 'code': 'internal_server_error'}", "method": "chat.update", "note": "ステートは更新済み。UI だけが古い"}
+{"event": "handoff.received", "layer": "escalation_slack", "trace_id": "e04-3", "actor": "U-APPROVER", "action_id": "approve_action", "slack_retry_num": null}
+{"event": "handoff.conflict", "layer": "escalation_slack", "trace_id": "e04-3", "actor": "U-APPROVER", "actual": "executed"}
+{"event": "slack.failed", "layer": "escalation_slack", "failure": "api_error", "detail": "{'message': 'injected fault: server_error', 'type': 'internal_server_error', 'code': 'internal_server_error'}", "method": "chat.postEphemeral"}
+
+── ストアの最終状態（正本）
+e04-3 | status=executed | executed_at=2026-10-01T07:25:55.924062+00:00 | result=dry_run
+audit:
+   2026-10-01T07:24:53.663336+00:00 created - -
+   2026-10-01T07:25:55.924498+00:00 execute U-APPROVER policy_override
+   2026-10-01T07:26:28.476261+00:00 lock_conflict U-APPROVER -
+
+── Slack 側の読み戻し（conversations.history）
+ts=1790839493.996299  has_actions=true  buttons=[approve_action/e04-3(confirm), reject_action/e04-3]
+→ **ボタンは残ったまま**。chat.update が失敗したので UI は承認前の姿で固まっている。
+
+── 2 回目の押下（古い UI は押せてしまう）
+handoff.conflict actual=executed / 監査に lock_conflict。executed_at は 07:25:55.924062 のまま。
+→ **UI が古くても二重実行にはならない。**排他は UI ではなくストアの条件付き更新が担保している。
+
+── 所見
+1. 判定基準6 の「送出の失敗と実行の失敗が別の値である」が、E-04 では
+   さらに「更新の失敗」として 3 つ目に分かれた。slack.failed に method を載せているため、
+   同じ event 名でも postMessage の失敗（E-01〜03・遮断が届いていない）と
+   chat.update の失敗（届いており実行も済んでいる）を後から区別できる。
+2. **UI を信じる実装だったら二重実行していた。** ボタンを消すことを排他の手段にすると、
+   消し損ねた瞬間に防御が消える。D-024 の「排他はストアに任せる」はここで効いている。
+3. 2 回目の押下で chat.postEphemeral も injector 行きになって失敗した。
+   **競合の通知すら届かない**状態であり、押した人間には何も返らない。
+   実運用では「UI が古い可能性」を前提に、ストアを問い合わせる経路（スラッシュコマンド等）が要る。

@@ -1,0 +1,24 @@
+D-01 Block Kit 生成の決定性（判定基準9） — 2026-10-01
+
+固定した EscalationEvent（occurred_at を固定）から build_notification() を
+プロセス内 10 回 + 別プロセス 3 回ぶん生成し、text / blocks / thread_blocks を
+canonical JSON（sort_keys）にして SHA-256 を比較した。
+
+D-01 Block Kit 生成の決定性 — 2026-10-01T07:18:08+00:00
+
+パターン2: プロセス内 10 回 → 異なる SHA-256 の数 = 1
+  2348c614ee9c6b72c880ebe3b326f709833a43217b20ce6422ec12351ee78596
+パターン3: プロセス内 10 回 → 異なる SHA-256 の数 = 1
+  d5ebeefce7a72eaf6bebd67934dc3304b821ed4793ca16a09b5d46fbd3a9af10
+パターン4: プロセス内 10 回 → 異なる SHA-256 の数 = 1
+  dbf4996e3ebdb6fd2e0567fd46ce0575fec54c8d3d1f94f15623b2aad75d696e
+
+別プロセス 1: {"2": "2348c614ee9c6b72c880ebe3b326f709833a43217b20ce6422ec12351ee78596", "3": "d5ebeefce7a72eaf6bebd67934dc3304b821ed4793ca16a09b5d46fbd3a9af10", "4": "dbf4996e3ebdb6fd2e0567fd46ce0575fec54c8d3d1f94f15623b2aad75d696e"}
+別プロセス 2: {"2": "2348c614ee9c6b72c880ebe3b326f709833a43217b20ce6422ec12351ee78596", "3": "d5ebeefce7a72eaf6bebd67934dc3304b821ed4793ca16a09b5d46fbd3a9af10", "4": "dbf4996e3ebdb6fd2e0567fd46ce0575fec54c8d3d1f94f15623b2aad75d696e"}
+別プロセス 3: {"2": "2348c614ee9c6b72c880ebe3b326f709833a43217b20ce6422ec12351ee78596", "3": "d5ebeefce7a72eaf6bebd67934dc3304b821ed4793ca16a09b5d46fbd3a9af10", "4": "dbf4996e3ebdb6fd2e0567fd46ce0575fec54c8d3d1f94f15623b2aad75d696e"}
+
+パターン2: 別プロセス 3 回と一致 = True
+パターン3: 別プロセス 3 回と一致 = True
+パターン4: 別プロセス 3 回と一致 = True
+
+判定: 一致（合格）

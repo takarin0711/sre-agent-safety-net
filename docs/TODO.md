@@ -1,6 +1,6 @@
 # TODO / 現在地
 
-最終更新: 2026-09-30
+最終更新: 2026-10-01
 
 ## 現在地
 
@@ -19,9 +19,13 @@
 新たな設計判断は [D-015〜D-018](decisions.md)。
 
 **Phase 4 の設計を確定（2026-09-30）。** [phases/phase4-slack/design.md](phases/phase4-slack/design.md) を書き切った。
-新たな設計判断は [D-019〜D-023](decisions.md)。
+新たな設計判断は [D-019〜D-024](decisions.md)。
 
-**次は Phase 4 の実装。実施手順は design.md 第8章、判定基準は第5章。**
+**Phase 4 は完了（2026-10-01）。** 全シナリオを実施し総合判定は合格。
+結果・考察・提言は [phases/phase4-slack/result.md](phases/phase4-slack/result.md)。
+実装中・実行中に出た設計判断は [D-019〜D-025](decisions.md)。
+
+**次は Phase 5（E2E）。着手前に design.md を書き切る。**
 
 各フェーズの設計は、別途の仕様書「フォールバック & Handoff フロー図」を前提にしている。
 **どこまでを Phase N で扱い、どこからを次に渡すかは各 design.md 第0章の対応表が正**。
@@ -31,7 +35,7 @@
 | Phase 1 (LiteLLM) | 完了 | 完了 | **完了（合格）** |
 | Phase 2 (JSON Validator) | 完了 | 完了 | **完了（合格）** |
 | Phase 3 (OPA) | 完了 | 完了 | **完了（合格）** |
-| Phase 4 (Slack) | **完了** | 未着手 | 未着手 |
+| Phase 4 (Slack) | 完了 | 完了 | **完了（合格）** |
 | Phase 5 (E2E) | 未着手 | 未着手 | 未着手 |
 
 ---
@@ -194,7 +198,8 @@
 - [x] `EscalationEvent` に相関 ID を追加 → **Phase 4 ではなく Phase 3 で導入する**（[D-016](decisions.md)）。
       Handoff 仕様書の運用原則2（ボタンの `value` は Trace ID のみ）が、第3層の拒否時点で
       Trace ID が確定していることを前提にしているため
-- [ ] `raw_output` の切り詰め（Block Kit のテキスト長上限。Phase 4）
+- [x] `raw_output` の切り詰め（Block Kit のテキスト長上限。Phase 4）→ `slack/blocks.py` の `truncate()`。
+      **上限超過は Slack が `invalid_blocks` で拒否する**ため、切り詰めは表示ではなく送出可否の問題だった
 - [ ] 実 LLM の構造破壊率は測っていない（PoC の呼び出し量では有意な推定ができない。design.md 非目的）
 - [ ] 強制スキーマの自動生成（第2層のスキーマから劣化コピーを作る仕組み）は提言に留めた
 
@@ -308,7 +313,9 @@ docker run --rm -v "$PWD/opa:/policies:ro" openpolicyagent/opa:1.21.0 test /poli
 - [ ] 環境と namespace の対応が `opa/data.json` に固定（実運用ではクラスタ由来のデータにすべき）
 - [ ] Decision Log の外部永続化は未実施（`docker compose logs opa` で確認しただけ）
 - [ ] ポリシーの bundle 化・署名検証は未実施
-- [ ] `EscalationEvent` に承認期限・承認者ロールの判定材料が無い（Phase 4 で決める）
+- [x] `EscalationEvent` に承認期限・承認者ロールの判定材料が無い（Phase 4 で決める）→
+      **足さずに済んだ。** 期限はストア（`expires_at`）、ロールは `SLACK_APPROVER_USER_IDS` に置いた
+      （phase4 result.md 未決事項11）
 
 ### Phase 4 に持ち越す論点
 
@@ -323,9 +330,9 @@ docker run --rm -v "$PWD/opa:/policies:ro" openpolicyagent/opa:1.21.0 test /poli
 
 ---
 
-## Phase 4 以降の準備タスク
+## Phase 4 の実装と実行（完了）
 
-いずれも着手時に `design.md` を先に書く。
+実施手順は [design.md 第8章](phases/phase4-slack/design.md)。
 
 ### Phase 4 (Slack)
 
@@ -391,18 +398,21 @@ docker run --rm -v "$PWD/opa:/policies:ro" openpolicyagent/opa:1.21.0 test /poli
 
 事前準備（実機）。**チャンネルを作らず Bot との DM で検証する**:
 
-- [ ] Slack App を作成（**From manifest** に [slack/app_manifest.yml](../slack/app_manifest.yml) を貼る。
+- [x] Slack App を作成（**From manifest** に [slack/app_manifest.yml](../slack/app_manifest.yml) を貼る。
       新 UI に「From scratch」は無く、手で作る場合は **Blank app**）。
       Bot トークン（`xoxb-`）と署名シークレットを取得
-- [ ] Bot スコープ（manifest に含む）: `chat:write` / `im:write`（DM を開く）/
-      `im:history`（**判定基準7 の読み戻し**。チャンネルで行う場合は `channels:history`）
-- [ ] `SLACK_CHANNEL_ID` に**自分のユーザ ID（`U...`）** を入れる。
+- [x] Bot スコープ（manifest に含む）: `chat:write` / `im:write`（DM を開く）/
+      `im:history`（**判定基準7 の読み戻し**。チャンネルで行う場合は `channels:history`）。
+      **この 3 つで足りた**（`auth.test` の `x-oauth-scopes` で確認。未決事項3）
+- [x] `SLACK_CHANNEL_ID` に**自分のユーザ ID（`U...`）** を入れる。
       `conversations.open` で DM（`D...`）に解決される（`slack/notifier.py`）
-- [ ] `SLACK_APPROVER_USER_IDS` に自分のユーザ ID。**未設定だと誰も承認できない**
+- [x] `SLACK_APPROVER_USER_IDS` に自分のユーザ ID。**未設定だと誰も承認できない**
 - [x] `python -m slack.preview --pattern 3` で通知を 1 本出す（**2026-10-01 実施。DM に着弾を確認**）
 - [x] `python -m slack.readback` で読み戻し（`value` が Trace ID のみ・confirm つきを実機で確認）
-- [ ] ngrok 等で Interactivity Request URL を用意（**ローカル URL では検証できない**）。
-      転送先は `SLACK_HANDLER_PORT`（既定 3000）、パスは `/slack/events`
+- [x] ngrok 等で Interactivity Request URL を用意（**ローカル URL では検証できない**）。
+      転送先は `SLACK_HANDLER_PORT`（既定 3000）、パスは `/slack/events`。
+      本フェーズでは cloudflared を使用。**押下を伴うシナリオの大半（G-06 / N-01 / E-04）は
+      署名を自前で計算した直接 POST で駆動でき、トンネル無しで実施できた**（result.md 考察8）
 
 **DM で検証できないこと**（result.md に限界として記録する）:
 
@@ -421,9 +431,16 @@ docker run --rm -v "$PWD/opa:/policies:ro" openpolicyagent/opa:1.21.0 test /poli
       再通知は**ボタン無し**で送出
 - [x] **E-01〜E-03 送出障害**。3 件とも `notify_failed` / `delivery_failed` / 実行層に未到達。
       **注入が届いた証拠を injector のアクセスログで取得**（[D-018](decisions.md)）
-- [ ] P-01〜P-03（**実際の層の失敗から**パターン 2・4 を出す。第1層・OPA の操作が要る）
-- [ ] N 系（限界）→ D-01（決定性）→ L-01（レイテンシと timeout の確定）→ C 系（考察材料）
-- [ ] result.md を書く
+- [x] **P-01〜P-03**（**実際の層の失敗から** 3 パターンを出した）。終了コード 3 / 1 / 4、
+      **ストアにエントリができたのは P-01 だけ**、パターン4 にボタン無し
+- [x] **E-04**（`chat.update` だけ失敗）。承認・実行は成立し UI だけが古い。再押下は `lock_conflict`
+- [x] **N-01**（ストア改変）。型違反は弾けたが、**型として正しい別アクションへの改変は通った**
+- [x] **N-02**（handler 停止中の押下）。ストアがバイト単位で一致。**押下の事実が残らない**
+- [x] **D-01**（決定性）。3 パターン × プロセス内 10 回 + 別プロセス 3 回で SHA-256 完全一致
+- [x] **L-01**（計測）。`chat.postMessage` p50 0.220 / max 0.530 秒（n=50）→ **10.0 秒を据え置き**
+- [x] **未決事項2 の実測**。Slack は上限超過を黙って切らず `invalid_blocks` で拒否する
+- [x] C-01（Socket Mode との構造比較）/ C-02（LiteLLM alerting との比較）→ result.md 考察8・9
+- [x] result.md を書く（[phase4-slack/result.md](phases/phase4-slack/result.md)）
 
 実機で見つかった実装の不備（**押してみなければ出なかったもの**。result.md 考察に回す）:
 
@@ -442,6 +459,63 @@ docker run --rm -v "$PWD/opa:/policies:ro" openpolicyagent/opa:1.21.0 test /poli
   送出先を DM にしたため API 呼び出しが 1 段増えた（チャンネル宛てには無い経路）
 - `違反件数` フィールドは見出しと二重だったため、**承認期限**に差し替えた
 
+## Phase 4 の結果サマリ
+
+全シナリオ実施済み。判定基準 1〜9 すべて合格。
+結果・考察・提言は [phases/phase4-slack/result.md](phases/phase4-slack/result.md)。
+
+| ID | 結果 | 要点 |
+| --- | --- | --- |
+| S / T / G 系 | 合格 | pytest 145 件。ワークスペース無しで決定的に検証できる |
+| P-01〜P-03 | 合格 | 実際の層の失敗から 3 パターン。**ストアにエントリができたのは P-01 だけ** |
+| A-01〜A-05 | 合格 | 承認 → 実行層（dry-run）→ `chat.update` → 監査に `policy_override` |
+| G-06 | 合格 | Slack の再送で実行は 1 回だけ（ヘッダではなくストアの CAS で弾く） |
+| E-01〜E-03 | 合格 | 送出失敗。遮断は成立したまま `notify_failed` / 終了コード 5 |
+| E-04 | 合格 | `chat.update` だけ失敗。**UI だけが古く、ストアが正**。再押下は `lock_conflict` |
+| N-01 | 合格（限界） | ストア改変。型違反は弾けるが、**型として正しい別アクションは通る** |
+| N-02 | 合格（限界） | handler 停止中の押下。**押下の事実がどこにも残らない** |
+| D-01 | 合格 | 3 パターン × 13 回生成の SHA-256 が完全一致 |
+| L-01 | 計測 | `chat.postMessage` p50 0.220 / max 0.530 秒（n=50）。`timeout` は 10.0 据え置き |
+
+### 実行中に判明した重要事項
+
+- **期限切れは満了ジョブの都合ではなく承認可否の条件だった**（[D-025](decisions.md)）。
+  ジョブに任せると「期限は過ぎたがまだ pending」の窓で承認が通る。CAS の 1 文に入れる。
+  **却下は期限後も通す**（人間が明示的に断る操作は常に安全側）
+- **押してみなければ出なかった不備が 4 件あった**（単体テストは全部通っていた）。
+  共通点は「1 回の押下」ではなく**押下と状態の関係**に関する不備であること
+- **切り詰めは表示の都合ではなく送出可否そのものだった。** Slack は上限超過を黙って切らず
+  `invalid_blocks` で拒否する。切り詰めが無ければ長い reason で通知が全損していた
+- **送出の失敗は 3 系統に残るが、受信の失敗はどこにも残らない。** 多層防御の最外周には外側が無い
+- **検証の大半はトンネル無しで回せた。** 署名を自前で計算した直接 POST で handler の検証経路は
+  そのまま通る。トンネルが要るのは「人間が実際に押す」ときだけ
+
+### 積み残し（Phase 4 としては完了扱い）
+
+- [ ] **`execution_failed` に `executed_at` が立つ**（実行層に到達していないのに時刻が入る）。
+      排他は `status` の CAS で行っているので実害は無いが、列名と意味がずれている。
+      design.md 3.5.1 は `execution_failed` を「再試行可」としているが、
+      **現実装には戻す遷移が無く終端状態**である（result.md 考察11）
+- [ ] **`chat.postEphemeral` が DM で失敗する**（`invalid_arguments`）。
+      RBAC 拒否と競合の通知が本人に届かない。チャンネルで検証すれば解消するはず（未検証）
+- [ ] A-03 の「複数オペレーターによる同時押下」は DM では実施できていない（G-06 で代替）
+- [ ] 運用原則5 の「チーム全体への状況同期」は DM では検証できていない
+- [ ] LiteLLM の alerting に `trace_id` を載せられるかは未確認（result.md 考察9）
+- [ ] 承認待ちエントリの死活監視（N-02 の提言2）は未実装
+
+### Phase 5 に持ち越す論点
+
+- **実行が本物になると壊れる前提が 3 つある**: `ack()` の 3 秒ルール / handler の権限 /
+  `execution_failed` の意味（result.md 申し送り）
+- **Phase 4 で注入できなかったものが Phase 5 で注入できる**: 通知パターン5（実行時エラー）、
+  `unknown` ステート、`execution_failed` からの再試行、承認待ち中に対象が変わる TOCTOU
+
+---
+
+## Phase 5 以降の準備タスク
+
+いずれも着手時に `design.md` を先に書く。
+
 ### Phase 5 (E2E)
 
 **実行層を本物にする（ローカル k8s）を Phase 5 の目玉に据える。** 2026-10-01 に方針として合意。
@@ -449,7 +523,7 @@ docker run --rm -v "$PWD/opa:/policies:ro" openpolicyagent/opa:1.21.0 test /poli
 - [ ] **CLAUDE.md の「実際の破壊的操作を実行しない」を改訂する。** 禁止の対象を
       **実クラスタに限定**し、使い捨ての kind / minikube は対象外とする。
       壊すために作る環境なので、`kind delete cluster` で消せることが前提。
-      設計判断として decisions.md に残す（D-025 予定）
+      設計判断として decisions.md に残す（**D-026 予定**。D-025 は Phase 4 の承認期限判定で使用済み）
 - [ ] kind でクラスタを作り、ServiceAccount の RBAC を最小権限にする。
       **第3層が許可しても RBAC で実行できない**状態を作る（Phase 3 提言5 の実証）
 - [ ] これにより Phase 4 で「注入できない」として外したものが検証可能になる:

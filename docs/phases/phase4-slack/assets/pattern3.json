@@ -1,0 +1,111 @@
+{
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": "🚨 [AIエージェント] 危険な操作を検知し自動実行をブロックしました",
+        "emoji": true
+      }
+    },
+    {
+      "type": "section",
+      "fields": [
+        {
+          "type": "mrkdwn",
+          "text": "*対象環境:*\n`production`"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Trace ID:*\n`preview-3`"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*検知レイヤー:*\n`第3層 (OPA)`"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*違反件数:*\n`2 件`"
+        }
+      ]
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*提案されたアクション:*\n```kubectl_delete_pvc  pvc/payment-db-data @ prod (production)  dry_run=false```"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*AI の思考ログ（判断理由）:*\n>ディスクが逼迫しているため PVC を削除して再作成する"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*違反したポリシー（2 件）:*\n• `PROHIBIT_PVC_DELETE`\n　PVC の削除は不可逆なため自動実行を許可しません（対象: prod/payment-db-data）\n• `PROHIBIT_PRODUCTION_DESTRUCTIVE`\n　production 環境での破壊的操作は人間の承認を要します"
+      }
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "actions",
+      "block_id": "handoff_action_block",
+      "elements": [
+        {
+          "type": "button",
+          "action_id": "approve_action",
+          "text": {
+            "type": "plain_text",
+            "text": "手動で承認して実行",
+            "emoji": true
+          },
+          "style": "danger",
+          "value": "preview-3",
+          "confirm": {
+            "title": {
+              "type": "plain_text",
+              "text": "本当に実行しますか？"
+            },
+            "text": {
+              "type": "mrkdwn",
+              "text": "*production の pvc/payment-db-data* に対する操作を実行します。"
+            },
+            "confirm": {
+              "type": "plain_text",
+              "text": "実行する"
+            },
+            "deny": {
+              "type": "plain_text",
+              "text": "キャンセル"
+            }
+          }
+        },
+        {
+          "type": "button",
+          "action_id": "reject_action",
+          "text": {
+            "type": "plain_text",
+            "text": "提案を却下",
+            "emoji": true
+          },
+          "value": "preview-3"
+        }
+      ]
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "実行内容は Trace ID をキーにサーバ側のストアから取得されます（ボタンの値は Trace ID のみ）。"
+        }
+      ]
+    }
+  ]
+}

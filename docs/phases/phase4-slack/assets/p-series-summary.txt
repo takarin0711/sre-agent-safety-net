@@ -1,0 +1,44 @@
+P 系 実機の通知3パターン — 2026-10-01
+
+**実際の層の失敗から**通知を出す。preview（手で組んだイベント）ではなく、
+第1層 → 第2層 → 第3層を通した結果として投稿されることを見る。
+「ストアにエントリができるのは policy_denied だけ」＝「承認ボタンが存在しうる状態と
+ストアのエントリが 1 対 1」であることが眼目（design.md 2.2）。
+
+── P-01 パターン3（第3層の deny）/ Phase 3 の B-01 と同一入力
+注入: LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=malformed
+      FAULT_FIXTURE=n01_dangerous_delete_pvc
+注入の裏取り: x-litellm-model-id=primary-fault-injector / attempted-fallbacks=0（D-018）
+終了コード: 3
+  policy.deny violated_rules= ['PROHIBIT_PVC_DELETE', 'PROHIBIT_PRODUCTION_DESTRUCTIVE']
+  slack.notified channel= D-DM ts= 1790839865.257849 kind= policy_denied
+ストア: pending が 1 件（trace_id=40d3ec87-5a0b-4c9c-a297-6a48ee2531bf / expires=07:46:04Z / audit=created のみ）
+読み戻し: has_actions=true / buttons=[approve_action, reject_action] / **value は Trace ID のみ** / confirm つき
+         block_types=[header, section, section, section, section, divider, actions, context]
+
+── P-02 パターン2（第2層の ValidationError）/ Phase 2 の V-01 と同一入力
+注入: FAULT_FIXTURE=v01_prose（散文 + コードフェンス）
+注入の裏取り: x-litellm-model-id=primary-fault-injector
+終了コード: 1
+  validation.error error_count=1 type=json_invalid
+  slack.notified kind=validation_failed ts=1790839896.710689 has_thread=true
+ストア: **エントリ無し**（pending_actions / audit_log ともに 0 件）
+読み戻し: has_actions=false / buttons=[] / thread_replies=1（全文はスレッドに退避されている）
+
+── P-03 パターン4（第3層が評価不能）/ Phase 3 の X-01 と同一の壊し方
+注入: docker compose stop opa（第1層は実 Bedrock のまま。壊したのは第3層だけ）
+注入の裏取り: curl http://localhost:8181/health が exit 7（接続不能）
+終了コード: 4
+  policy.unavailable failure=unreachable detail=ConnectError: [Errno 61] Connection refused
+  slack.notified kind=policy_unavailable ts=1790839930.172169
+ストア: **エントリ無し**
+読み戻し: has_actions=false / buttons=[] ← 判定基準2（パターン4 にボタンが 1 つでもあれば不合格）
+
+── 所見
+1. 3 パターンとも**実際の層の失敗から**出た。preview で作ったものと同じ構造になっている
+   （D-01 のハッシュは preview 由来のイベントで取っているが、block_types は実経路でも一致）。
+2. ストアにエントリができたのは P-01 だけ。**承認ボタンの有無とストアの状態がずれていない。**
+   パターン4 にボタンを出す実装ミスがあれば、ストアの状態にも現れる設計になっている。
+3. P-03 の action は実 LLM が生成した kubectl_logs（参照系）である。
+   **参照系であっても第3層が評価できない以上は実行しない**という Fail-Closed が、
+   エスカレーション層の見え方（CRITICAL・ボタン無し）にもそのまま出ている。

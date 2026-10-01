@@ -1,0 +1,63 @@
+{
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": "🚨 [CRITICAL] ポリシー評価不能のため処理を自動遮断しました (Fail-Closed)",
+        "emoji": true
+      }
+    },
+    {
+      "type": "section",
+      "fields": [
+        {
+          "type": "mrkdwn",
+          "text": "*対象環境:*\n`production`"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Trace ID:*\n`preview-4`"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*判定結果:*\n`Fail-Closed (即時遮断)`"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*検知レイヤー:*\n`第3層 (OPA)`"
+        }
+      ]
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*理由:*\n第3層が評価できないため実行を中止しました（timeout）: 3.0 秒以内に応答がありませんでした（ConnectTimeout）"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*提案されたアクション:*\n```kubectl_rollout_restart  deployment/payment-api @ prod (production)  dry_run=true```"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*AI の思考ログ（判断理由）:*\n>Pod が CrashLoopBackOff のため Deployment を再起動して復旧を試みる"
+      }
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "💡 OPA の稼働とポリシーの配布状況を確認してください。**安全性が確認できていないため承認ボタンは出していません。**"
+        }
+      ]
+    }
+  ]
+}

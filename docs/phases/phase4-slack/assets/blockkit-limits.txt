@@ -1,0 +1,22 @@
+未決事項2 Block Kit の上限と超過時の挙動 — 2026-10-01
+
+切り詰めを外した blocks を実 Slack に直接投げた（slack/blocks.py は変更していない）。
+投稿できたものは conversations.history で読み戻し、切られていないことまで確認する。
+
+実装側の上限: SECTION=3000 HEADER=150 MAX_BLOCKS=50
+section 3000 ちょうど: ok=True blocks_sent=1 blocks_back=1 text_len_back=[3000]
+section 3001: ok=False error=invalid_blocks detail=['failed to match all allowed schemas [json-pointer:/blocks/0/text]', 'must be less than 3001 characters [json-pointer:/blocks/0/text/text]']
+header 151: ok=False error=invalid_blocks detail=['failed to match all allowed schemas [json-pointer:/blocks/0/text]', 'must be less than 151 characters [json-pointer:/blocks/0/text/text]']
+blocks 51: ok=False error=invalid_blocks detail=['no more than 50 items allowed [json-pointer:/blocks]']
+
+── 結論
+Slack は**黙って切らない。ok:false + error=invalid_blocks で拒否する。**
+しかも json-pointer つきでどのブロックのどのフィールドかまで返る。
+実装側の上限（SECTION 3000 / HEADER 150 / MAX_BLOCKS 50）は Slack の実際の上限と一致していた。
+
+── 帰結
+S-05 の切り詰めは**表示の都合ではなく送出可否そのもの**だった。
+切り詰めを入れていなければ、reason が長いインシデントで通知が丸ごと失敗し、
+「遮断は成立したが誰にも届かない」（E 系と同じ状態）になっていた。
+LLM が生成する reason の長さは第2層の max_length でしか縛っていないため、
+**上限ぎりぎりの入力は実運用で普通に起こりうる**。

@@ -1,0 +1,63 @@
+{
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": "⚠️ [WARNING] エージェント処理停止 (Schema Validation Error)",
+        "emoji": true
+      }
+    },
+    {
+      "type": "section",
+      "fields": [
+        {
+          "type": "mrkdwn",
+          "text": "*検知レイヤー:*\n`第2層 (JSON Validator)`"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*Trace ID:*\n`preview-2`"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*エラー件数:*\n`1 件`"
+        },
+        {
+          "type": "mrkdwn",
+          "text": "*エラー種別:*\n`json_invalid`"
+        }
+      ]
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*理由:*\n第2層の構造検証に失敗しました（1 件）"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*LLM 生レスポンス (Raw Output):*\n```承知しました。以下のアクションを提案します。\n\n```json\n{\n  \"action_id\": \"act-1001\",\n  \"environment\": \"production\",\n  \"operation\": \"kubectl_rollout_restart\",\n  \"target\": {\"kind\": \"deployment\", \"name\": \"payment-api\", \"namespace\": \"prod\"},\n  \"replicas\": null,\n  \"reason\": \"CrashLoopBackOff からの復旧のため再起動する\",\n  \"dry_run\": true\n}\n```\n\nご確認ください。\n```"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*元のインシデント記述:*\n>本番の payment-api の Pod が CrashLoopBackOff"
+      }
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "💡 出力フォーマットの定義（プロンプト）かスキーマの見直しを検討してください。"
+        }
+      ]
+    }
+  ]
+}

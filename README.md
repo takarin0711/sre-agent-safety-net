@@ -88,7 +88,7 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 | Phase 1 | 第1層 (LiteLLM) | LiteLLM 経由で通常プロンプトを送受信できる | プライマリ API を停止、または 429/500 エラーを模擬発生させる | 自動でサブモデルへフェイルオーバーし、エージェント側に通信エラーを返さない | **完了**（[結果](docs/phases/phase1-litellm/result.md)） |
 | Phase 2 | 第2層 (JSON Validator) | 正常な JSON フォーマットが型検証を通過する | 自然言語混入、クォート閉じ漏れ、必須フィールド欠落 JSON を入力する | `ValidationError` を確定検知し、即座に例外ハンドラへハンドオフされる | **完了（合格）**（[設計](docs/phases/phase2-pydantic/design.md) / [結果](docs/phases/phase2-pydantic/result.md)） |
 | Phase 3 | 第3層 (OPA) | 参照系コマンド（`kubectl get` 等）が `allow: true` になる | 破壊的操作（`kubectl delete` 等）を指示した JSON を入力する | OPA で `allow: false` と判定され、実行権限が確定的に拒否される | **完了（合格）**（[設計](docs/phases/phase3-opa/design.md) / [結果](docs/phases/phase3-opa/result.md)） |
-| Phase 4 | エスカレーション機構 (Slack Handoff 単体) | ダミーのエラー JSON を送信し、Slack 上に Block Kit UI が正しく表示される | Slack 上で「手動で承認して実行」や「却下」ボタンを実際に押下する | ボタン押下時のイベント（Interactivity payload）をアプリ側で正しく受信・パースできる | 未着手 |
+| Phase 4 | エスカレーション機構 (Slack Handoff 単体) | ダミーのエラー JSON を送信し、Slack 上に Block Kit UI が正しく表示される | Slack 上で「手動で承認して実行」や「却下」ボタンを実際に押下する | ボタン押下時のイベント（Interactivity payload）をアプリ側で正しく受信・パースできる | **完了（合格）**（[設計](docs/phases/phase4-slack/design.md) / [結果](docs/phases/phase4-slack/result.md)） |
 | Phase 5 | E2E (全体統合テスト) | タスクが AI の自律判断から実行まで全自動で完了する | Phase 1〜3 の各層で意図的に異常系イベントを発生させる | 各層に応じた Slack 通知が届き、人間がボタンを押すことで処理が安全に再開・中断される | 未着手 |
 
 各フェーズは着手前に `docs/phases/phaseN-*/design.md` で設計を確定させ、実行後に `result.md` へ結果を記録する。
