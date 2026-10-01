@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 import httpx
 from pydantic_core import ValidationError
 
+from agents.escalation import escalate
 from agents.log import json_safe_errors, log
 from agents.schemas import EscalationEvent, OpaResponse, PolicyDecision, ProposedAction
 
@@ -150,7 +151,8 @@ def evaluate_action(
     event = build_denied_event(
         decision, action=action, trace_id=trace_id, original_request=original_request
     )
-    log(
+    escalate(
+        event,
         event="policy.deny",
         layer=LAYER,
         trace_id=trace_id,
@@ -230,7 +232,8 @@ def _unavailable(
         original_request=original_request,
         errors=errors,
     )
-    log(
+    escalate(
+        event,
         event="policy.unavailable",
         layer=LAYER,
         trace_id=trace_id,

@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 
 from pydantic_core import InitErrorDetails, PydanticCustomError, ValidationError
 
+from agents.escalation import escalate
 from agents.log import json_safe_errors, log
 from agents.schemas import EscalationEvent, ProposedAction
 
@@ -87,11 +88,17 @@ def _handoff(
     original_request: str,
     trace_id: str,
 ) -> None:
-    """エスカレーションイベントを生成して構造化ログに出す。例外は握り潰さない。"""
+    """エスカレーションイベントを生成し、ハンドオフ経路へ渡す。例外は握り潰さない。
+
+    Phase 3 まではここで log() を呼んでいた。Phase 4 で escalate() に委ねるが、
+    **出力される log 行は 1 バイトも変わらない**（escalate() が同じ行をそのまま出す）。
+    第2層は通知先を知らない（D-019）。
+    """
     event = build_escalation_event(
         exc, raw_output=raw_output, original_request=original_request, trace_id=trace_id
     )
-    log(
+    escalate(
+        event,
         event="validation.error",
         layer=LAYER,
         trace_id=trace_id,

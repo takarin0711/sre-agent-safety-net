@@ -1,0 +1,54 @@
+{
+  "channel": "D-DM",
+  "messages": [
+    {
+      "user": "U-BOT",
+      "type": "message",
+      "ts": "1790825128.082289",
+      "edited": {
+        "user": "U-BOT",
+        "ts": "1790825186.000000"
+      },
+      "bot_id": "B-BOT",
+      "app_id": "A-APP",
+      "text": ":white_check_mark: *[承認済み・実行完了]* *承認者:* <@U-APPROVER>",
+      "team": "T-TEAM",
+      "bot_profile": {
+        "id": "B-BOT",
+        "deleted": false,
+        "name": "SRE Safety Net Demo App",
+        "updated": 1790823580,
+        "app_id": "A-APP",
+        "user_id": "U-BOT",
+        "icons": {
+          "image_36": "https://a.slack-edge.com/80588/img/plugins/app/bot_36.png",
+          "image_48": "https://a.slack-edge.com/80588/img/plugins/app/bot_48.png",
+          "image_72": "https://a.slack-edge.com/80588/img/plugins/app/service_72.png"
+        },
+        "team_id": "T-TEAM"
+      },
+      "blocks": [
+        {
+          "type": "section",
+          "block_id": "h+l34",
+          "text": {
+            "type": "mrkdwn",
+            "text": ":white_check_mark: *[承認済み・実行完了]*\n*承認者:* <@U-APPROVER>\n*Trace ID:* `approve-3`",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "Tmdho",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": "ポリシー違反を人間が承認して実行しました（policy_override として監査に記録）",
+              "verbatim": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

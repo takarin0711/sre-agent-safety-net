@@ -1,0 +1,40 @@
+# Slack App のマニフェスト（api.slack.com/apps → Create New App → From manifest に貼る）。
+#
+# スコープを手で選ぶより取り違えが起きにくく、**検証環境を再現できる**ため manifest で持つ。
+# 秘密情報は含まない（トークンと署名シークレットは作成後に発行され、.env にだけ置く）。
+#
+# 検証はチャンネルを作らず **Bot との DM** で行う（docs/TODO.md の事前準備）。
+# そのため channels:history ではなく im:* を要求している。
+display_information:
+  name: SRE Safety Net
+  description: 多層防御 PoC のエスカレーション層（第2層・第3層の失敗を人間へ引き渡す）
+  background_color: "#1f2328"
+
+features:
+  bot_user:
+    display_name: safety-net
+    always_online: false
+
+oauth_config:
+  scopes:
+    bot:
+      # 通知の投稿・スレッド返信・chat.update（運用原則5）・エフェメラル
+      - chat:write
+      # ユーザ ID から DM を開く（conversations.open）。チャンネルを作らずに検証するため
+      - im:write
+      # conversations.history での読み戻し。**判定基準7 の「届いたことの証拠」**に要る
+      - im:history
+
+settings:
+  interactivity:
+    is_enabled: true
+    # ngrok を起動したら、この URL を https://<ngrok>/slack/events に差し替える。
+    # Slack は Interactivity の Request URL を保存時に検証しない（Events API とは違う）ため、
+    # 先に仮の値で作っておける。
+    request_url: https://example.ngrok-free.app/slack/events
+  org_deploy_enabled: false
+  # 新しい雛形に含まれるキー。Slack 上でホストするアプリではないので false
+  is_hosted: false
+  # Socket Mode は使わない。署名検証という検証対象が消えるため（design.md C-01 / 運用原則2）
+  socket_mode_enabled: false
+  token_rotation_enabled: false

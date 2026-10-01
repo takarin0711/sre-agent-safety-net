@@ -11,6 +11,7 @@ LiteLLM Proxy 側の関心事とする。フェイルオーバーの有無によ
     python -m agents.main --incident "本番の payment-api の Pod が CrashLoopBackOff"
                                                            # 第2層 → 第3層（Phase 3）
     python -m agents.main --incident "..." --no-policy      # 第2層で止める（Phase 2 の経路）
+    python -m agents.main --incident "..." --no-slack       # Slack へ送出しない（Phase 3 の経路）
 
 --incident の終了コードは分岐を一意に表す（phase3 design.md 3.8）。
 
@@ -19,6 +20,7 @@ LiteLLM Proxy 側の関心事とする。フェイルオーバーの有無によ
     2  環境変数の設定不足
     3  第3層が allow: false（Handoff 仕様書の通知パターン3）
     4  第3層が評価不能・Fail-Closed（同 パターン4）
+    5  エスカレーションの送出に失敗した（遮断は成立しているが人間に届いていない）
 """
 
 from __future__ import annotations
@@ -33,10 +35,11 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic_core import ValidationError
 
+from agents import escalation
+from agents.execution import execute_dry_run
 from agents.log import log
 from agents.policy import PolicyUnavailableError, evaluate_action
 from agents.prompts import build_incident_messages
-from agents.schemas import ProposedAction
 from agents.validation import validate_action
 
 # エージェントから見える唯一のモデル名。実デプロイの解決は LiteLLM に委ねる。
@@ -49,6 +52,9 @@ EXIT_LAYER1_OR_2_FAILED = 1
 EXIT_CONFIG_ERROR = 2
 EXIT_POLICY_DENIED = 3
 EXIT_POLICY_UNAVAILABLE = 4
+# 遮断そのものは成立しているが、人間に届いていない（docs/decisions.md D-022）。
+# 多層防御でもっとも危険な失敗は「止めたことを誰も知らない」ことなので、3 / 4 と区別する。
+EXIT_ESCALATION_FAILED = 5
 
 
 def litellm_headers(headers: object) -> dict[str, str]:
@@ -125,22 +131,6 @@ def call_once(client: OpenAI, prompt: str, attempt: int) -> int:
     return 0 if ok else 1
 
 
-def execute_dry_run(action: ProposedAction, trace_id: str) -> None:
-    """実行層。PoC では構造化ログを出すだけで、実 kubectl は発行しない。
-
-    アクションの dry_run が false でも発行しない（CLAUDE.md）。この層を置く目的は
-    「allow: true が実行に繋がっていること」を示すことであり、実行そのものの検証ではない。
-    したがって allow: false / 評価不能のときにこのログが**出ていないこと**が、
-    拒否と Fail-Closed の実効性のエビデンスになる（判定基準4）。
-    """
-    log(
-        event="execution.dry_run",
-        trace_id=trace_id,
-        action=action.model_dump(mode="json"),
-        note="PoC のため実際のコマンドは発行しない",
-    )
-
-
 def call_incident_once(
     client: OpenAI, incident: str, attempt: int, *, skip_policy: bool = False
 ) -> int:
@@ -150,9 +140,22 @@ def call_incident_once(
     エスカレーションイベントを貫く相関 ID になる（docs/decisions.md D-016）。
     """
     trace_id = str(uuid.uuid4())
+    code = _run_layers(client, incident, attempt, trace_id, skip_policy=skip_policy)
+    if escalation.delivery_failed(trace_id):
+        # 遮断の成立（3 / 4）と「人間に届いていない」を区別する（D-022）。
+        return EXIT_ESCALATION_FAILED
+    return code
 
+
+def _run_layers(
+    client: OpenAI, incident: str, attempt: int, trace_id: str, *, skip_policy: bool
+) -> int:
+    """第1層 → 第2層 → 第3層 → 実行層。戻り値は送出の成否を含まない終了コード。"""
     content, ok = call_llm(client, build_incident_messages(incident), attempt, trace_id)
     if not ok:
+        # 第1層の全滅は通知パターン1 にあたるが、エージェントは「どのエンドポイントが
+        # どう落ちたか」を知らない。ここから組み立てると持っていない情報を推測することになる
+        # （design.md 3.13）。LiteLLM 自身の alerting の責務なので、ここでは通知しない。
         return EXIT_LAYER1_OR_2_FAILED
 
     try:
@@ -195,6 +198,11 @@ def main() -> int:
         action="store_true",
         help="第3層に問い合わせず第2層で止める（Phase 2 の経路の再現用）",
     )
+    parser.add_argument(
+        "--no-slack",
+        action="store_true",
+        help="エスカレーションを Slack へ送出しない（Phase 3 までの経路の再現用）",
+    )
     parser.add_argument("--repeat", type=int, default=1, help="繰り返し回数（F-05 / L-01 用）")
     parser.add_argument("--interval", type=float, default=0.0, help="繰り返し間隔（秒）")
     args = parser.parse_args()
@@ -204,6 +212,9 @@ def main() -> int:
     if not base_url or not api_key:
         print("OPENAI_BASE_URL と LITELLM_MASTER_KEY を .env に設定してください", file=sys.stderr)
         return EXIT_CONFIG_ERROR
+
+    if args.no_slack:
+        escalation.set_enabled(False)
 
     client = OpenAI(base_url=base_url, api_key=api_key)
 

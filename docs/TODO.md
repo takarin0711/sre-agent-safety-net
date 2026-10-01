@@ -18,17 +18,20 @@
 結果・考察・提言は [phases/phase3-opa/result.md](phases/phase3-opa/result.md)。
 新たな設計判断は [D-015〜D-018](decisions.md)。
 
-**次は Phase 4（Slack）。着手前に design.md を書くこと。**
+**Phase 4 の設計を確定（2026-09-30）。** [phases/phase4-slack/design.md](phases/phase4-slack/design.md) を書き切った。
+新たな設計判断は [D-019〜D-023](decisions.md)。
 
-Phase 3 の設計は、別途の仕様書「フォールバック & Handoff フロー図」を前提にしている。
-**どこまでを Phase 3 で扱い、どこからを Phase 4 / 5 に渡すかは design.md 第0章の対応表が正**。
+**次は Phase 4 の実装。実施手順は design.md 第8章、判定基準は第5章。**
+
+各フェーズの設計は、別途の仕様書「フォールバック & Handoff フロー図」を前提にしている。
+**どこまでを Phase N で扱い、どこからを次に渡すかは各 design.md 第0章の対応表が正**。
 
 | フェーズ | 設計 | 実装 | 実行 |
 | --- | --- | --- | --- |
 | Phase 1 (LiteLLM) | 完了 | 完了 | **完了（合格）** |
 | Phase 2 (JSON Validator) | 完了 | 完了 | **完了（合格）** |
 | Phase 3 (OPA) | 完了 | 完了 | **完了（合格）** |
-| Phase 4 (Slack) | 未着手 | 未着手 | 未着手 |
+| Phase 4 (Slack) | **完了** | 未着手 | 未着手 |
 | Phase 5 (E2E) | 未着手 | 未着手 | 未着手 |
 
 ---
@@ -326,18 +329,137 @@ docker run --rm -v "$PWD/opa:/policies:ro" openpolicyagent/opa:1.21.0 test /poli
 
 ### Phase 4 (Slack)
 
-- [ ] `docs/phases/phase4-slack/design.md` を書く。**Handoff 仕様書のどこまでを Phase 4 で扱うかを
-      先に固定する**（Phase 3 の design.md 第0章と同じ形の対応表を作る）
-- [ ] Slack App 作成、Bot トークンと署名シークレット取得
-- [ ] ngrok 等で Interactivity Request URL を用意（**ローカル URL では検証できない**）
-- [ ] `slack/handler.py`（Block Kit + Interactivity payload の受信・パース）
-- [ ] `EscalationEvent`（`kind` = `validation_failed` / `policy_denied` / `policy_unavailable`）を
-      通知パターン 2 / 3 / 4 に対応付ける。**パターン3 は違反を複数表示できる形にする**
-- [ ] 承認待ちアクションのステートストア（Trace ID がキー。運用原則4）
-- [ ] `policy_override` の監査記録（OPA の Decision Log には残らない）
+**設計は完了**（[design.md](phases/phase4-slack/design.md)）。以下は実施手順（design.md 第8章）の写し。
+
+確定した方針:
+
+- Interactivity は **HTTP + ngrok**（Socket Mode にすると署名検証という検証対象が消えるため。C-01 で構造比較）
+- ステートストアは **SQLite**（コンテナを増やさず排他・永続・TTL・監査を同一ファイルに置ける）
+- 承認押下は **実行層（dry-run）まで到達させる**。`policy_override` を監査に残す
+- 実ワークスペースを使う。送出の異常系は `SLACK_API_BASE_URL` を `mocks/fault_injector.py` に向けて注入する
+- **受信と実行を分けない**（[D-024](decisions.md)）。実行層が dry-run ログなので 3 秒ルールに対して桁が 5 つ違う。
+  実運用の構成（Receiver / Executor を SQS で分離）との差分は提言に書く
+- **Slack は 3 秒を超えると同じ payload を再送する。** 二重押下の検証は連打（A-03）ではなく
+  再送（G-06）を主軸にする。pytest で決定的に再現できるため
+- **ステートの語彙は Phase 4 で到達しないものも含めて決め切る**（design.md 3.5.1）。
+  とくに `execution_failed`（確定的な失敗・再試行可）と `unknown`（実行有無が不明・再試行不可）を分ける
+
+実装（**完了 2026-10-01**。単体テスト 47 件追加、全 140 件パス）:
+
+- [x] `slack/blocks.py`（`EscalationEvent` → Block Kit。純関数。Slack SDK を import しない）
+- [x] `slack/masking.py`（AWS キー / Slack トークン / Bearer / key=value / URL 埋め込み認証）
+- [x] `slack/store.py`（SQLite。CAS / TTL / 冪等 / TOCTOU / 監査ログ）
+- [x] `slack/notifier.py`（`chat.postMessage` / スレッド返信 / `chat.update` / エフェメラル）
+- [x] `slack/handler.py`（Bolt。署名検証・RBAC・CAS・復元時の再検証・実行層・監査）
+- [x] `slack/expire.py`（TTL 満了検知ジョブ。`--dry-run` つき）
+- [x] `agents/escalation.py`（ハンドオフ経路の 1 本化。既存のログ行は不変）
+- [x] `agents/execution.py`（`execute_dry_run()` を切り出し。承認経路からも同じ関数を呼ぶ）
+- [x] `agents/main.py` / `validation.py` / `policy.py`（終了コード 5 / `--no-slack`）
+- [x] `tests/test_slack_blocks.py`（S-01〜S-08 + D-01）/ `test_slack_store.py`（T-01〜T-07）/
+      `test_slack_signature.py`（G-01〜G-06 + RBAC）/ `test_escalation.py`（E 系の単体側）
+- [x] `tests/fakes.py` / `conftest.py`（**全テストで Slack 送出を隔離する autouse fixture**）
+- [x] `slack/preview.py`（通知パターンのプレビュー）/ `slack/readback.py`（届いたことの読み戻し）/
+      `slack/app_manifest.yml`（Slack App の構成。スコープの取り違えを防ぐ）
+- [x] `.env.example` / `.gitignore`（承認者リスト / TTL / TOCTOU / `SLACK_API_BASE_URL` / ストア）
+
+設計時に想定していなかった実装上の追加・差分（**いずれも result.md に転記する**）:
+
+- **ストアの `approve` に承認期限の判定を CAS の中へ入れた。** design.md 3.5 の表は
+  有効期限を満了ジョブの責務としていたが、それだと「期限は過ぎたがまだ pending」の窓で
+  承認が通る。**期限切れは満了ジョブの都合であって承認可否の条件である**ため、
+  `UPDATE ... WHERE status='pending' AND expires_at > ?` に含めた（T-03）。
+  却下は期限後も通す（人間が明示的に断る操作は常に安全側）
+- **`execution_failed` に Phase 4 で到達する。** design.md 3.5.1 は「実行層が dry-run なので
+  到達しない」と書いたが、**ストアからの復元に失敗した場合**（T-07）が該当した。
+  実行を試みて確定的に失敗しており、ストアを直せば再試行できるので `unknown` ではない
+- **Slack API 呼び出しを notifier に一本化した。** Bolt は**リクエストごとに新しい `WebClient` を
+  組み立てる**（`app.py` の `client_per_request`）ため、リスナーに注入される client では
+  `SLACK_API_BASE_URL` による障害注入（E-04）が効かず、テストからも差し替えられない
+- **`token_verification_enabled` の既定は True にする**（未決事項12 への部分回答）。
+  True だと Bolt は**起動時に 1 回だけ** `auth.test` する。False にすると**リクエストごとに**飛ぶため、
+  3 秒ルールの観点でも True が正しい
+- **テストが実 Slack API に出ていた。** 上記を踏むまで、`auth.test` が毎リクエスト
+  `https://slack.com/api/auth.test` を叩いていた。`conftest.py` に autouse の隔離 fixture を置き、
+  `SLACK_*` を落として ストアを一時ファイルに向けるようにした（**Phase 2・3 のテストも保護される**）
+- **RBAC の承認者リストが未設定なら誰も承認できない。** 未設定が「全員許可」になるほうが
+  事故として重いため、認可も Fail-Closed に倒した
+- **`--no-slack` / 未設定時に `slack.skipped` の行が 1 行増える。** 既存の行は 1 バイトも
+  変わっていない（`test_escalation.py` でキー構成ごと固定した）が、行数は増える
+- **提案アクションをシェルコマンド文字列として描画しない。** `kubectl delete pvc ...` の形に
+  すると (1) 操作ごとのテンプレートが通知層に入り D-021 に抵触し、(2) 発行しないコマンドを
+  人間に見せることになる。汎用の整形（`operation / kind/name @ namespace (env) dry_run=`）にした
+
+事前準備（実機）。**チャンネルを作らず Bot との DM で検証する**:
+
+- [ ] Slack App を作成（**From manifest** に [slack/app_manifest.yml](../slack/app_manifest.yml) を貼る。
+      新 UI に「From scratch」は無く、手で作る場合は **Blank app**）。
+      Bot トークン（`xoxb-`）と署名シークレットを取得
+- [ ] Bot スコープ（manifest に含む）: `chat:write` / `im:write`（DM を開く）/
+      `im:history`（**判定基準7 の読み戻し**。チャンネルで行う場合は `channels:history`）
+- [ ] `SLACK_CHANNEL_ID` に**自分のユーザ ID（`U...`）** を入れる。
+      `conversations.open` で DM（`D...`）に解決される（`slack/notifier.py`）
+- [ ] `SLACK_APPROVER_USER_IDS` に自分のユーザ ID。**未設定だと誰も承認できない**
+- [x] `python -m slack.preview --pattern 3` で通知を 1 本出す（**2026-10-01 実施。DM に着弾を確認**）
+- [x] `python -m slack.readback` で読み戻し（`value` が Trace ID のみ・confirm つきを実機で確認）
+- [ ] ngrok 等で Interactivity Request URL を用意（**ローカル URL では検証できない**）。
+      転送先は `SLACK_HANDLER_PORT`（既定 3000）、パスは `/slack/events`
+
+**DM で検証できないこと**（result.md に限界として記録する）:
+
+- 運用原則5 の「チーム全体への状況同期」。DM は自分にしか見えない
+- A-03 の「複数オペレーターによる同時押下」。**同一人物の連打と G-06（Slack の再送）で代替する**
+  （もともと判定基準の主軸は G-06 に置いている。D-024）
+
+実行（design.md 4.7 の順序）。**2026-10-01 に実機検証を実施（Slack DM + cloudflared）**:
+
+- [x] S 系（Block Kit 単体）→ T 系（ストア）→ G 系（署名検証）を pytest で通す（**145 件パス**）
+- [x] **A-01 承認 → 実行層（dry-run）→ `chat.update` → 監査に `policy_override`**（判定基準5・7）
+- [x] **A-02 却下** / **A-05 RBAC 拒否**（承認者リストから外して押した。`denied_by_rbac` を記録）
+- [x] **A-03 二重押下 → G-06（Slack の再送）で代替**。署名付きリクエストを 2 回投げ、
+      2 回目は `lock_conflict`。監査の `execute` は 1 件だけ（[D-024](decisions.md) どおり）
+- [x] **A-04 TTL 失効**（TTL 60 秒 → `slack.expire`）。元メッセージを「期限切れ・未実行」に更新し、
+      再通知は**ボタン無し**で送出
+- [x] **E-01〜E-03 送出障害**。3 件とも `notify_failed` / `delivery_failed` / 実行層に未到達。
+      **注入が届いた証拠を injector のアクセスログで取得**（[D-018](decisions.md)）
+- [ ] P-01〜P-03（**実際の層の失敗から**パターン 2・4 を出す。第1層・OPA の操作が要る）
+- [ ] N 系（限界）→ D-01（決定性）→ L-01（レイテンシと timeout の確定）→ C 系（考察材料）
+- [ ] result.md を書く
+
+実機で見つかった実装の不備（**押してみなければ出なかったもの**。result.md 考察に回す）:
+
+- **RBAC ミドルウェアが 404 を返していた。** `next()` を呼ばずに終えると Bolt が
+  レスポンスを作れず 404 になり、**Slack からは失敗に見えて再送の対象**になる（3 秒ルール）。
+  拒否は正常な処理結果なので `BoltResponse(status=200)` を返すよう修正。
+  併せて Bolt がリクエスト本文（Slack の verification token を含む）を警告ログに
+  出していたのも止まった
+- **承認期限の表示が実効値でなかった。** TTL 15 分を表示しながら TOCTOU 5 分で `stale` に
+  倒れていた（実機で踏んだ）。**実効的な窓は短いほうで決まる**ため、
+  `actionable_until()` = min(承認期限, 提案時刻 + TOCTOU 閾値) を表示するよう修正。
+  Handoff 仕様書の既定値（TTL 15 分 / STALE 5 分）はこの矛盾を内包している
+- **`stale` の監査に「誰が押して弾かれたか」が残っていなかった**（`actor=None`）。
+  押した事実は記録すべきなので `actor` を渡すよう修正
+- **最初に失敗するのは `chat.postMessage` ではなく `conversations.open`。**
+  送出先を DM にしたため API 呼び出しが 1 段増えた（チャンネル宛てには無い経路）
+- `違反件数` フィールドは見出しと二重だったため、**承認期限**に差し替えた
 
 ### Phase 5 (E2E)
 
+**実行層を本物にする（ローカル k8s）を Phase 5 の目玉に据える。** 2026-10-01 に方針として合意。
+
+- [ ] **CLAUDE.md の「実際の破壊的操作を実行しない」を改訂する。** 禁止の対象を
+      **実クラスタに限定**し、使い捨ての kind / minikube は対象外とする。
+      壊すために作る環境なので、`kind delete cluster` で消せることが前提。
+      設計判断として decisions.md に残す（D-025 予定）
+- [ ] kind でクラスタを作り、ServiceAccount の RBAC を最小権限にする。
+      **第3層が許可しても RBAC で実行できない**状態を作る（Phase 3 提言5 の実証）
+- [ ] これにより Phase 4 で「注入できない」として外したものが検証可能になる:
+      - 通知パターン5（実行時エラー・再試行）← RBAC 拒否で本物のエラーを注入できる
+      - `unknown` ステート（実行有無が不明）← API サーバを落としてタイムアウトを作れる
+      - `execution_failed` からの再試行（`retry_count`）
+      - TOCTOU（承認待ちの間に Pod を消す / 戻す）
+      - N-01 の限界（詐称したアクションが RBAC で止まること）
+- [ ] **ngrok は Phase 5 でも必要。** k8s 操作は「出ていく」通信であり、
+      入口が要るのは Slack のボタン押下だけという構造は変わらない
 - [ ] `docs/phases/phase5-e2e/design.md` を書く
 - [ ] **中断・再開の状態管理を自前で実装する必要がある**（D-001 でフレームワークを入れないと決めたため）。
       Phase 5 の設計時に D-001 の再検討余地あり

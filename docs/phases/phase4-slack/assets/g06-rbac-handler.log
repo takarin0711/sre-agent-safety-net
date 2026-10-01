@@ -1,0 +1,12 @@
+{"event": "handler.start", "layer": "escalation_slack", "port": 3000, "approvers": 1, "status": "pending"}
+⚡️ Bolt app is running! (development server)
+{"event": "handoff.unauthorized", "layer": "escalation_slack", "trace_id": "g06-3", "actor": "U-STRANGER", "action_id": "approve_action"}
+{"event": "slack.failed", "layer": "escalation_slack", "failure": "api_error", "detail": "invalid_arguments", "method": "chat.postEphemeral"}
+127.0.0.1 - - [01/Oct/2026 12:34:28] "POST /slack/events HTTP/1.1" 200 -
+{"event": "handoff.received", "layer": "escalation_slack", "trace_id": "g06-3", "actor": "U-APPROVER", "action_id": "approve_action", "slack_retry_num": null}
+{"event": "execution.dry_run", "trace_id": "g06-3", "action": {"action_id": "act-0006", "environment": "production", "operation": "kubectl_delete_pvc", "target": {"kind": "pvc", "name": "payment-db-data", "namespace": "prod"}, "replicas": null, "reason": "ディスクが逼迫しているため PVC を削除して再作成する", "dry_run": false}, "note": "PoC のため実際のコマンドは発行しない"}
+{"event": "handoff.executed", "layer": "escalation_slack", "trace_id": "g06-3", "actor": "U-APPROVER", "override_kind": "policy_override"}
+127.0.0.1 - - [01/Oct/2026 12:34:29] "POST /slack/events HTTP/1.1" 200 -
+{"event": "handoff.received", "layer": "escalation_slack", "trace_id": "g06-3", "actor": "U-APPROVER", "action_id": "approve_action", "slack_retry_num": ["1"]}
+{"event": "handoff.conflict", "layer": "escalation_slack", "trace_id": "g06-3", "actor": "U-APPROVER", "actual": "executed"}
+127.0.0.1 - - [01/Oct/2026 12:34:29] "POST /slack/events HTTP/1.1" 200 -

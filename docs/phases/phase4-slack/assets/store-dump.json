@@ -1,0 +1,365 @@
+{
+  "pending_actions": [
+    {
+      "trace_id": "preview-3",
+      "status": "expired",
+      "kind": "policy_denied",
+      "channel": "D-DM",
+      "message_ts": "1790823811.495829",
+      "created_at": "2026-10-01T03:03:31.098482+00:00",
+      "expires_at": "2026-10-01T03:18:31.098482+00:00",
+      "approved_by": null,
+      "approved_at": null,
+      "executed_at": null,
+      "execution_result": null
+    },
+    {
+      "trace_id": "live-3",
+      "status": "expired",
+      "kind": "policy_denied",
+      "channel": "D-DM",
+      "message_ts": "1790824148.613469",
+      "created_at": "2026-10-01T03:09:08.254785+00:00",
+      "expires_at": "2026-10-01T03:24:08.254785+00:00",
+      "approved_by": null,
+      "approved_at": null,
+      "executed_at": null,
+      "execution_result": null
+    },
+    {
+      "trace_id": "ready-3",
+      "status": "stale",
+      "kind": "policy_denied",
+      "channel": "D-DM",
+      "message_ts": "1790824219.212709",
+      "created_at": "2026-10-01T03:10:18.859733+00:00",
+      "expires_at": "2026-10-01T03:25:18.859733+00:00",
+      "approved_by": "U-APPROVER",
+      "approved_at": "2026-10-01T03:23:49.961041+00:00",
+      "executed_at": null,
+      "execution_result": "提案から 811 秒が経過しているため実行しません"
+    },
+    {
+      "trace_id": "approve-3",
+      "status": "executed",
+      "kind": "policy_denied",
+      "channel": "D-DM",
+      "message_ts": "1790825128.082289",
+      "created_at": "2026-10-01T03:25:27.750028+00:00",
+      "expires_at": "2026-10-01T03:40:27.750028+00:00",
+      "approved_by": "U-APPROVER",
+      "approved_at": "2026-10-01T03:26:26.560945+00:00",
+      "executed_at": "2026-10-01T03:26:26.562307+00:00",
+      "execution_result": "dry_run"
+    },
+    {
+      "trace_id": "a02-3",
+      "status": "rejected",
+      "kind": "policy_denied",
+      "channel": "D-DM",
+      "message_ts": "1790825551.417709",
+      "created_at": "2026-10-01T03:32:31.087223+00:00",
+      "expires_at": "2026-10-01T03:47:31.087223+00:00",
+      "approved_by": "U-APPROVER",
+      "approved_at": "2026-10-01T03:32:45.053722+00:00",
+      "executed_at": null,
+      "execution_result": null
+    },
+    {
+      "trace_id": "a05-3",
+      "status": "pending",
+      "kind": "policy_denied",
+      "channel": "D-DM",
+      "message_ts": "1790825552.014749",
+      "created_at": "2026-10-01T03:32:31.686656+00:00",
+      "expires_at": "2026-10-01T03:47:31.686656+00:00",
+      "approved_by": null,
+      "approved_at": null,
+      "executed_at": null,
+      "execution_result": null
+    },
+    {
+      "trace_id": "g06-3",
+      "status": "executed",
+      "kind": "policy_denied",
+      "channel": "D-DM",
+      "message_ts": "1790825654.718859",
+      "created_at": "2026-10-01T03:34:14.367098+00:00",
+      "expires_at": "2026-10-01T03:49:14.367098+00:00",
+      "approved_by": "U-APPROVER",
+      "approved_at": "2026-10-01T03:34:28.995511+00:00",
+      "executed_at": "2026-10-01T03:34:28.996918+00:00",
+      "execution_result": "dry_run"
+    },
+    {
+      "trace_id": "a04-3",
+      "status": "expired",
+      "kind": "policy_denied",
+      "channel": "D-DM",
+      "message_ts": "1790825701.298729",
+      "created_at": "2026-10-01T03:35:00.921322+00:00",
+      "expires_at": "2026-10-01T03:36:00.921322+00:00",
+      "approved_by": null,
+      "approved_at": null,
+      "executed_at": null,
+      "execution_result": null
+    },
+    {
+      "trace_id": "e02",
+      "status": "notify_failed",
+      "kind": "policy_denied",
+      "channel": null,
+      "message_ts": null,
+      "created_at": "2026-10-01T03:37:13.745249+00:00",
+      "expires_at": "2026-10-01T03:52:13.745249+00:00",
+      "approved_by": null,
+      "approved_at": null,
+      "executed_at": null,
+      "execution_result": null
+    },
+    {
+      "trace_id": "e03",
+      "status": "notify_failed",
+      "kind": "policy_denied",
+      "channel": null,
+      "message_ts": null,
+      "created_at": "2026-10-01T03:37:31.451521+00:00",
+      "expires_at": "2026-10-01T03:52:31.451521+00:00",
+      "approved_by": null,
+      "approved_at": null,
+      "executed_at": null,
+      "execution_result": null
+    },
+    {
+      "trace_id": "e01",
+      "status": "notify_failed",
+      "kind": "policy_denied",
+      "channel": null,
+      "message_ts": null,
+      "created_at": "2026-10-01T03:37:36.450927+00:00",
+      "expires_at": "2026-10-01T03:52:36.450927+00:00",
+      "approved_by": null,
+      "approved_at": null,
+      "executed_at": null,
+      "execution_result": null
+    }
+  ],
+  "audit_log": [
+    {
+      "id": 1,
+      "trace_id": "preview-3",
+      "occurred_at": "2026-10-01T03:03:31.098966+00:00",
+      "actor": null,
+      "action": "created",
+      "override_kind": null,
+      "detail": "ttl=900s"
+    },
+    {
+      "id": 2,
+      "trace_id": "live-3",
+      "occurred_at": "2026-10-01T03:09:08.255249+00:00",
+      "actor": null,
+      "action": "created",
+      "override_kind": null,
+      "detail": "ttl=900s"
+    },
+    {
+      "id": 3,
+      "trace_id": "ready-3",
+      "occurred_at": "2026-10-01T03:10:18.860322+00:00",
+      "actor": null,
+      "action": "created",
+      "override_kind": null,
+      "detail": "ttl=900s"
+    },
+    {
+      "id": 4,
+      "trace_id": "ready-3",
+      "occurred_at": "2026-10-01T03:23:49.964670+00:00",
+      "actor": null,
+      "action": "stale",
+      "override_kind": null,
+      "detail": "提案から 811 秒が経過しているため実行しません"
+    },
+    {
+      "id": 5,
+      "trace_id": "approve-3",
+      "occurred_at": "2026-10-01T03:25:27.750553+00:00",
+      "actor": null,
+      "action": "created",
+      "override_kind": null,
+      "detail": "ttl=900s"
+    },
+    {
+      "id": 6,
+      "trace_id": "approve-3",
+      "occurred_at": "2026-10-01T03:26:26.563309+00:00",
+      "actor": "U-APPROVER",
+      "action": "execute",
+      "override_kind": "policy_override",
+      "detail": "violated_rules=['PROHIBIT_PVC_DELETE', 'PROHIBIT_PRODUCTION_DESTRUCTIVE']"
+    },
+    {
+      "id": 7,
+      "trace_id": "a02-3",
+      "occurred_at": "2026-10-01T03:32:31.087877+00:00",
+      "actor": null,
+      "action": "created",
+      "override_kind": null,
+      "detail": "ttl=900s"
+    },
+    {
+      "id": 8,
+      "trace_id": "a05-3",
+      "occurred_at": "2026-10-01T03:32:31.687328+00:00",
+      "actor": null,
+      "action": "created",
+      "override_kind": null,
+      "detail": "ttl=900s"
+    },
+    {
+      "id": 9,
+      "trace_id": "a02-3",
+      "occurred_at": "2026-10-01T03:32:45.055256+00:00",
+      "actor": "U-APPROVER",
+      "action": "reject",
+      "override_kind": "normal_approval",
+      "detail": null
+    },
+    {
+      "id": 10,
+      "trace_id": "a05-3",
+      "occurred_at": "2026-10-01T03:32:56.923494+00:00",
+      "actor": "U-APPROVER",
+      "action": "denied_by_rbac",
+      "override_kind": null,
+      "detail": "approve_action"
+    },
+    {
+      "id": 11,
+      "trace_id": "g06-3",
+      "occurred_at": "2026-10-01T03:34:14.367880+00:00",
+      "actor": null,
+      "action": "created",
+      "override_kind": null,
+      "detail": "ttl=900s"
+    },
+    {
+      "id": 12,
+      "trace_id": "g06-3",
+      "occurred_at": "2026-10-01T03:34:28.749357+00:00",
+      "actor": "U-STRANGER",
+      "action": "denied_by_rbac",
+      "override_kind": null,
+      "detail": "approve_action"
+    },
+    {
+      "id": 13,
+      "trace_id": "g06-3",
+      "occurred_at": "2026-10-01T03:34:28.998423+00:00",
+      "actor": "U-APPROVER",
+      "action": "execute",
+      "override_kind": "policy_override",
+      "detail": "violated_rules=['PROHIBIT_PVC_DELETE', 'PROHIBIT_PRODUCTION_DESTRUCTIVE']"
+    },
+    {
+      "id": 14,
+      "trace_id": "g06-3",
+      "occurred_at": "2026-10-01T03:34:29.281381+00:00",
+      "actor": "U-APPROVER",
+      "action": "lock_conflict",
+      "override_kind": null,
+      "detail": "actual=executed"
+    },
+    {
+      "id": 15,
+      "trace_id": "a04-3",
+      "occurred_at": "2026-10-01T03:35:00.921938+00:00",
+      "actor": null,
+      "action": "created",
+      "override_kind": null,
+      "detail": "ttl=60s"
+    },
+    {
+      "id": 16,
+      "trace_id": "preview-3",
+      "occurred_at": "2026-10-01T03:36:19.696572+00:00",
+      "actor": null,
+      "action": "expire",
+      "override_kind": null,
+      "detail": "expires_at=2026-10-01T03:18:31.098482+00:00"
+    },
+    {
+      "id": 17,
+      "trace_id": "live-3",
+      "occurred_at": "2026-10-01T03:36:20.386915+00:00",
+      "actor": null,
+      "action": "expire",
+      "override_kind": null,
+      "detail": "expires_at=2026-10-01T03:24:08.254785+00:00"
+    },
+    {
+      "id": 18,
+      "trace_id": "a04-3",
+      "occurred_at": "2026-10-01T03:36:20.876434+00:00",
+      "actor": null,
+      "action": "expire",
+      "override_kind": null,
+      "detail": "expires_at=2026-10-01T03:36:00.921322+00:00"
+    },
+    {
+      "id": 19,
+      "trace_id": "e02",
+      "occurred_at": "2026-10-01T03:37:13.745714+00:00",
+      "actor": null,
+      "action": "created",
+      "override_kind": null,
+      "detail": "ttl=900s"
+    },
+    {
+      "id": 20,
+      "trace_id": "e02",
+      "occurred_at": "2026-10-01T03:37:13.817039+00:00",
+      "actor": null,
+      "action": "notify_failed",
+      "override_kind": null,
+      "detail": "api_error: {'message': 'injected fault: server_error', 'type': 'internal_server_error', 'code': 'internal_server_error'}"
+    },
+    {
+      "id": 21,
+      "trace_id": "e03",
+      "occurred_at": "2026-10-01T03:37:31.452099+00:00",
+      "actor": null,
+      "action": "created",
+      "override_kind": null,
+      "detail": "ttl=900s"
+    },
+    {
+      "id": 22,
+      "trace_id": "e03",
+      "occurred_at": "2026-10-01T03:37:31.639158+00:00",
+      "actor": null,
+      "action": "notify_failed",
+      "override_kind": null,
+      "detail": "api_error: invalid_auth"
+    },
+    {
+      "id": 23,
+      "trace_id": "e01",
+      "occurred_at": "2026-10-01T03:37:36.452404+00:00",
+      "actor": null,
+      "action": "created",
+      "override_kind": null,
+      "detail": "ttl=900s"
+    },
+    {
+      "id": 24,
+      "trace_id": "e01",
+      "occurred_at": "2026-10-01T03:37:41.481382+00:00",
+      "actor": null,
+      "action": "notify_failed",
+      "override_kind": null,
+      "detail": "transport: TimeoutError: timed out"
+    }
+  ]
+}

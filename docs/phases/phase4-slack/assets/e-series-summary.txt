@@ -1,0 +1,33 @@
+E 系（Slack への送出障害）実機結果の抜粋 — 2026-10-01
+
+escalate() を直接呼び、送出の失敗だけを切り出して観測した。
+LLM と OPA は経路に関係しないため通していない。終了コード 5 への反映は単体で検証済み
+（tests/test_escalation.py）。
+
+注入の確認は「注入器が動いているか」ではなく **リクエストが実際にその経路を通ったこと**
+で行う（docs/decisions.md D-018）。下記の injector アクセスログがその証拠。
+
+── E-01 無応答（FAULT_MODE=timeout / FAULT_DELAY_SECONDS=45 / SLACK_TIMEOUT_SECONDS=5）
+{"event": "slack.failed", "trace_id": "e01", "failure": "transport", "detail": "TimeoutError: timed out"}
+delivery_failed: True / store: notify_failed / message_ts: None
+[注入の裏取り] safety-net-fault-injector | fault_mode=timeout path=/api/conversations.open
+                safety-net-fault-injector | "POST /api/conversations.open HTTP/1.1" 504 -
+
+── E-02 HTTP 500（FAULT_MODE=server_error）
+{"event": "slack.failed", "trace_id": "e02", "failure": "api_error",
+ "detail": "{'message': 'injected fault: server_error', 'type': 'internal_server_error', ...}"}
+delivery_failed: True / store: notify_failed / message_ts: None
+[注入の裏取り] safety-net-fault-injector | "POST /api/conversations.open HTTP/1.1" 500 -
+
+── E-03 無効トークン（実 Slack API）
+{"event": "slack.failed", "trace_id": "e03", "failure": "api_error", "detail": "invalid_auth"}
+delivery_failed: True / store: notify_failed / message_ts: None
+[注入の裏取り] 実 Slack が **HTTP 200 + ok:false** を返した。slack_sdk が例外に変換する。
+
+── 所見
+1. Slack は失敗しても HTTP 200 を返す。ステータスだけを見る実装は静かに沈黙する。
+   第3層の X-04（OPA が 200 + result 無し）と同じ形の罠。
+2. **最初に失敗したのは chat.postMessage ではなく conversations.open だった。**
+   送出先を DM にしたことで API 呼び出しが 1 段増え、失敗点がそこに移っている。
+   チャンネル宛てでは通らない経路。
+3. 3 件とも「遮断は成立」かつ「人間に届いていない」が区別できている（D-022）。

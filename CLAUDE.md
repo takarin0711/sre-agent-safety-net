@@ -49,6 +49,13 @@ aws sso login --profile <PROFILE>
 aws configure export-credentials --profile <PROFILE> --format env-no-export >> .env
 docker compose up -d              # コンテナを作り直さないと新しい値が反映されない
 
+# エスカレーション層 (Phase 4)
+python -m slack.preview --pattern 3       # 通知パターンを 1 本送る (第1〜3層を起動せずに試せる)
+python -m slack.preview --dump --out docs/phases/phase4-slack/assets   # 送らずに JSON を保存
+python -m slack.readback                  # 送出したメッセージを読み戻す (届いたことの証拠。D-018)
+python -m slack.handler                   # Interactivity の受信 (常駐。ngrok の転送先)
+python -m slack.expire --dry-run          # 承認期限の満了検知ジョブ
+
 # エージェント実行
 python -m agents.main --prompt "hello"                            # 第2層を通らない (Phase 1 の経路)
 python -m agents.main --prompt "hello" --repeat 20 --interval 15   # F-05 フェイルバック観測
@@ -190,6 +197,12 @@ curl -s http://localhost:8181/health
   リポジトリルートから `import litellm` すると、このディレクトリが名前空間パッケージとして解決されてしまう。
   LiteLLM は Docker で Proxy として動かし、エージェント側は OpenAI SDK 経由で叩く前提なので通常は問題にならないが、
   ホスト側で litellm を import する必要が出た場合はこの点を思い出すこと。
+- **`slack/` ディレクトリは slack_sdk 同梱の非推奨 `slack` パッケージをシャドーイングする。**
+  `litellm/` と同じ構造。リポジトリルートから実行する限り本リポジトリの `slack/` が勝つので問題ないが、
+  **別ディレクトリに置いたスクリプトから `from slack import ...` すると SDK 側が解決され**、
+  `aiohttp` が無いと ImportError になる（実際に踏んだ）。
+  検証用のスクリプトはリポジトリルートに置くか、`python -m slack.<module>` で実行する。
+  `slack_bolt` / `slack_sdk` 自身はこの互換パッケージを参照しないため、本体の動作には影響しない。
 - **秘密情報は `.env` のみ。** API キー・Slack トークン・署名シークレットを
   `litellm/config.yaml` や `docker-compose.yml` に直書きしない（`os.environ/` 参照を使う）。
   `.env` と `.env.local` は gitignore 済み。
