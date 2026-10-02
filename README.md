@@ -114,6 +114,16 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 
 - Python 3.12+
 - Docker / Docker Compose
+- **kind / kubectl**（Phase 5 の実行層でのみ使う。Phase 1〜4 には不要）
+
+  ```bash
+  brew install kind kubectl     # macOS。Linux は https://kind.sigs.k8s.io/docs/user/quick-start/
+  kind version                  # 検証は v0.33.0 で実施
+  ```
+
+  **ノードイメージはダイジェストで固定している**ので、kind のバージョンが違うと
+  `k8s/kind-cluster.yaml` の `image:` を実環境に合わせて読み替える必要がある
+  （`kind create cluster` の既定イメージは kind のバージョンに紐づく）。
 - **AWS アカウント**（Bedrock。primary / fallback とも同一アカウントで、キーは 1 系統でよい）
   - 対象リージョン（`ap-northeast-1` / `us-east-2`）で推論プロファイルが `ACTIVE` であること
   - **Bedrock の Anthropic use case details form が提出済みであること。**

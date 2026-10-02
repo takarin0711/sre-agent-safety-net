@@ -57,6 +57,7 @@ python -m slack.handler                   # Interactivity の受信 (常駐。ng
 python -m slack.expire --dry-run          # 承認期限の満了検知ジョブ
 
 # 実行層 (Phase 5)。**使い捨ての kind クラスタ専用**（D-026）
+brew install kind kubectl         # 未導入のとき。検証は kind v0.33.0 で実施
 ./k8s/setup.sh                    # クラスタ作成（--recreate で作り直す）
 ./k8s/make-kubeconfig.sh          # ServiceAccount の kubeconfig を var/ に出す
 ./k8s/make-fault-kubeconfig.sh    # 実行層の障害注入用（プロキシ経由）
