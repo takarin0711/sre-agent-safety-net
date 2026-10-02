@@ -84,6 +84,9 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 ├── tests/                    # pytest (第2層の単体検証)
 │   ├── fixtures/             #   正常系 & 壊れた LLM 出力のケース集
 │   └── test_layer2_validation.py
+├── scripts/                  # 通し検証 (E2E) を手で回すための配線
+│   ├── e2e.sh                #   前提確認・常駐 3 本の起動・ステート観測・裏取り
+│   └── README.md             #   アーキテクチャ図 / 手順 / 出力の読み方 / 成立の条件
 └── docs/                     # 設計と検証記録
     ├── architecture.md       # 全体設計
     ├── decisions.md          # 設計判断ログ
@@ -92,6 +95,7 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 
 現在地と残タスクは [docs/TODO.md](docs/TODO.md)、設計ドキュメントの構成と運用ルールは [docs/README.md](docs/README.md) を参照。
 コマンドの全集は [docs/commands.md](docs/commands.md)、検証で実際に踏んだ失敗は [docs/lessons.md](docs/lessons.md) にまとめてある。
+**通しを実際に動かすなら [scripts/README.md](scripts/README.md)。**
 
 ---
 
@@ -106,6 +110,20 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 | Phase 5 | E2E (全体統合テスト) | タスクが AI の自律判断から実行まで全自動で完了する | Phase 1〜3 の各層で意図的に異常系イベントを発生させる | 各層に応じた Slack 通知が届き、人間がボタンを押すことで処理が安全に再開・中断される | **完了（合格）**（[設計](docs/phases/phase5-e2e/design.md) / [結果](docs/phases/phase5-e2e/result.md)） |
 
 各フェーズは着手前に `docs/phases/phaseN-*/design.md` で設計を確定させ、実行後に `result.md` へ結果を記録する。
+
+**Phase 5 の通しは [scripts/e2e.sh](scripts/e2e.sh) で再現できる。**
+
+```bash
+./scripts/e2e.sh check    # 前提確認だけ（プロセスを起動しない）
+./scripts/e2e.sh up       # tunnel / handler / executor を起動し、Slack の Request URL を表示
+./scripts/e2e.sh run      # インシデントを 1 本流して承認待ちを作る
+                          # → Slack でボタンを押す → 前後比較・判定・監査ログが出る
+./scripts/e2e.sh verify   # あとから同じ判定をやり直す
+```
+
+**承認ボタンの押下と各層の判定は自動化していない。** スクリプトがやるのは前提確認・
+常駐プロセスの起動・ステート遷移の観測・クラスタの裏取りまでで、判断は人間と各層に残してある
+（[scripts/README.md](scripts/README.md)）。
 
 ---
 
