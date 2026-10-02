@@ -91,6 +91,7 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 ```
 
 現在地と残タスクは [docs/TODO.md](docs/TODO.md)、設計ドキュメントの構成と運用ルールは [docs/README.md](docs/README.md) を参照。
+コマンドの全集は [docs/commands.md](docs/commands.md)、検証で実際に踏んだ失敗は [docs/lessons.md](docs/lessons.md) にまとめてある。
 
 ---
 

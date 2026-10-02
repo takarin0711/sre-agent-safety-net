@@ -7,306 +7,134 @@
 SRE エージェント（LLM）を多層防御で囲い込む **PoC 検証用リポジトリ**。プロダクションコードではない。
 「各層が期待どおり異常を検知・遮断するか」を実証することが目的であり、機能の充実や汎用化は目的ではない。
 
-検証は Phase 1 → 5 の順に進める。**現在地と残タスクは [docs/TODO.md](docs/TODO.md) が正**。
+**異常系は「壊して確かめる」のが本体。** 壊れた JSON の注入、禁止コマンドの投入、ポリシーの削除といった
+故意の failure injection がこのリポジトリの主要な作業であり、バグではない。
+
+Phase 1〜5 はすべて完了済み。**現在地と残タスクは [docs/TODO.md](docs/TODO.md) が正。**
 作業を再開するときは、まず TODO.md を読むこと。
+
+## ドキュメントの地図
+
+| 知りたいこと | 読む先 |
+| --- | --- |
+| 現在地・残タスク | [docs/TODO.md](docs/TODO.md) |
+| 層の責務と層間インターフェース | [docs/architecture.md](docs/architecture.md) |
+| なぜこの構成なのか（D-001〜D-030） | [docs/decisions.md](docs/decisions.md) |
+| **過去に踏んだ失敗と検証の規律** | [docs/lessons.md](docs/lessons.md) |
+| コマンド全集（障害注入・kind・Slack） | [docs/commands.md](docs/commands.md) |
+| 各層の検証シナリオと判定基準 | `docs/phases/phaseN-*/design.md` |
+| 実行結果とエビデンス | `docs/phases/phaseN-*/result.md` |
+
+| 層 | 実装 | フェーズ | 設計判断 |
+| --- | --- | --- | --- |
+| 第1層 可用性 | LiteLLM Proxy（HTTP） | [phase1-litellm](docs/phases/phase1-litellm/design.md) | D-003〜D-009 |
+| 第2層 構造保証 | Pydantic v2（インプロセス） | [phase2-pydantic](docs/phases/phase2-pydantic/design.md) | D-010〜D-014 |
+| 第3層 権限判定 | OPA / Rego（HTTP） | [phase3-opa](docs/phases/phase3-opa/design.md) | D-015〜D-018 |
+| エスカレーション | Slack Bolt（Block Kit） | [phase4-slack](docs/phases/phase4-slack/design.md) | D-019〜D-025 |
+| 実行層 | Kubernetes API クライアント | [phase5-e2e](docs/phases/phase5-e2e/design.md) | D-026〜D-030 |
+
+**層は役割名で呼び、実装名では呼ばない**（第2層 = JSON Validator。[D-013](docs/decisions.md)）。
 
 ## 技術スタック
 
 - Python 3.12 / venv + pip（`requirements.txt`, `requirements-dev.txt`）— uv や Poetry は使わない
-- エージェント本体: 素の Python + **OpenAI SDK**（LiteLLM Proxy に OpenAI 互換エンドポイントとして接続）
-  - LangGraph 等のエージェントフレームワークは導入しない。層の責務と検証結果を曖昧にしないため。
-- 第2層 **JSON Validator**: 実装は Pydantic v2。エージェントと同一プロセスのライブラリとして読み込む
-  （層は役割名で呼び、実装名では呼ばない。理由は [D-013](docs/decisions.md)）
-- 第3層: OPA（Rego）。エージェントからは HTTP（`POST /v1/data/...`）で問い合わせる
-- エスカレーション: Slack Bolt for Python（Block Kit + Interactivity）
-- 依存サービスは Docker Compose で起動
+- エージェント本体は素の Python + **OpenAI SDK**（LiteLLM Proxy に OpenAI 互換エンドポイントとして接続）。
+  **LangGraph 等のエージェントフレームワークは導入しない**（[D-001](docs/decisions.md)）。
+  層の責務と検証結果を曖昧にしないため
+- 依存サービスは Docker Compose。実行層の対象は使い捨ての kind クラスタのみ
+- モデルは `claude-sonnet-4-6` に固定し、`jp.` / `us.` の推論プロファイルでマルチ地理圏に振る。
+  `global.` は US を包含するため fallback 先には使わない（[D-008](docs/decisions.md)）
 
 ## よく使うコマンド
 
 ```bash
-# 環境
 source .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
-
-# 依存サービス
-docker compose up -d              # 正常系（両リージョンとも実 Bedrock）
-LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=rate_limit docker compose up -d   # 異常系 (第1層)
-LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=malformed FAULT_FIXTURE=v01_prose \
-  docker compose up -d            # 異常系 (第2層 / R-01)。200 を返し content だけ壊す
-docker compose restart litellm    # Router の cooldown を初期化するとき（状態のリセット専用）
-docker compose up -d --force-recreate litellm fault-injector   # 設定・env を切り替えるとき（restart では反映されない）
-docker compose logs fault-injector  # primary が実際に何回叩かれたかの裏取り
-docker compose down
-
-# 異常系 (第3層)。agents/ は変更しない
-docker compose stop opa                                          # X-01 接続不能
-OPA_POLICY_DIR=./mocks/opa_faults/no_policy       docker compose up -d opa   # X-04 undefined
-OPA_POLICY_DIR=./mocks/opa_faults/allow_as_string docker compose up -d opa   # X-05 形の逸脱
-docker compose logs opa           # Decision Log。allow がポリシー評価の結果である裏取り
-
-# AWS クレデンシャルの更新（SSO の一時クレデンシャルが失効したとき）
-aws sso login --profile <PROFILE>
-aws configure export-credentials --profile <PROFILE> --format env-no-export >> .env
-docker compose up -d              # コンテナを作り直さないと新しい値が反映されない
-
-# エスカレーション層 (Phase 4)
-python -m slack.preview --pattern 3       # 通知パターンを 1 本送る (第1〜3層を起動せずに試せる)
-python -m slack.preview --dump --out docs/phases/phase4-slack/assets   # 送らずに JSON を保存
-python -m slack.readback                  # 送出したメッセージを読み戻す (届いたことの証拠。D-018)
-python -m slack.handler                   # Interactivity の受信 (常駐。ngrok の転送先)
-python -m slack.expire --dry-run          # 承認期限の満了検知ジョブ
-
-# 実行層 (Phase 5)。**使い捨ての kind クラスタ専用**（D-026）
-brew install kind kubectl         # 未導入のとき。検証は kind v0.33.0 で実施
-./k8s/setup.sh                    # クラスタ作成（--recreate で作り直す）
-./k8s/make-kubeconfig.sh          # ServiceAccount の kubeconfig を var/ に出す
-./k8s/make-fault-kubeconfig.sh    # 実行層の障害注入用（プロキシ経由）
-kind delete cluster --name sre-safety-net   # 丸ごと消す。これが D-026 の前提
+docker compose up -d              # 正常系。設定を変えたときは up -d --force-recreate
+python -m agents.main --incident "本番の payment-api の Pod が CrashLoopBackOff"
 python -m agents.executor         # 実行プロセス（常駐。唯一 K8S_KUBECONFIG を持つ）
-python -m agents.executor --once  # 1 周だけ（検証用）
-K8S_PROXY_MODE=drop_response K8S_PROXY_UPSTREAM=$(cat var/kind-upstream.txt) \
-  K8S_PROXY_CA=var/kind-ca.pem python mocks/k8s_proxy.py   # 「実行されたのに unknown」を作る
-kubectl get deploy payment-api -n dev -o yaml   # 層の外側からの裏取り（実行には kubectl を使わない）
-
-# エージェント実行
-python -m agents.main --prompt "hello"                            # 第2層を通らない (Phase 1 の経路)
-python -m agents.main --prompt "hello" --repeat 20 --interval 15   # F-05 フェイルバック観測
-python -m agents.main --incident "本番の payment-api の Pod が CrashLoopBackOff"   # 第2層 → 第3層
-python -m agents.main --incident "..." --no-policy   # 第2層で止める (Phase 2 の経路の再現)
-# --incident の終了コード: 0 実行成功 / 1 第1層・第2層の失敗 / 2 設定不足 / 3 deny / 4 評価不能
-#                          5 通知の送出失敗 / 6 実行が確定的に失敗 / 7 実行の有無が不明（最重）
-
-# テスト
-pytest                            # 第2層 (JSON Validator) の単体検証
-python -m tests.dump_validation_errors <out.json>   # errors() の生 JSON をエビデンスとして保存
-# Rego ポリシーの単体テスト。opa CLI が無いので Docker で実行する
-docker run --rm -v "$PWD/opa:/policies:ro" openpolicyagent/opa:1.21.0 test /policies -v
-
-# 疎通（プロセスの死活確認のみ。推論が通る保証にはならない）
-curl -s http://localhost:4000/health
-curl -s http://localhost:8181/health
+python -m slack.handler           # Interactivity の受信（常駐。ngrok の転送先）
+pytest                            # 第2層の単体検証 + 層の境界の強制
 ```
+
+`--incident` の終了コード: 0 実行成功 / 1 第1層・第2層の失敗 / 2 設定不足 / 3 deny / 4 評価不能 /
+5 通知の送出失敗 / 6 実行が確定的に失敗 / 7 実行の有無が不明（最重）。
+
+**障害注入・kind・Slack preview・Rego テストは [docs/commands.md](docs/commands.md)。**
 
 ## コーディング規約
 
-- 型ヒントは必須。層をまたぐデータ構造は必ず Pydantic モデルとして `agents/schemas.py` に定義する。
-  第2層のモデルには `strict=True` と `extra="forbid"` を必ず付ける（既定の lax モードは `"3"` を `3` に
-  黙って変換するため、外すと型不一致を検知できなくなる）。
+- 型ヒントは必須。層をまたぐデータ構造は必ず Pydantic モデルとして `agents/schemas.py` に定義する
 - 層の境界を越えるデータは JSON。**第1層・第3層の実装コードは import しない**（HTTP で疎結合を保つ）。
-  第2層は同一プロセスのライブラリなので import して使う。この線引きは [D-010](docs/decisions.md)。
-- 例外は握り潰さない。各層の失敗は「検知して Slack へハンドオフする」ことが検証対象そのものなので、
-  `except Exception: pass` のようなコードは PoC の目的を破壊する。
+  第2層は同一プロセスのライブラリなので import して使う（[D-010](docs/decisions.md)）
+- **例外は握り潰さない。** 各層の失敗は「検知して Slack へハンドオフする」ことが検証対象そのものなので、
+  `except Exception: pass` のようなコードは PoC の目的を破壊する
 - ログは各層の判定結果（フェイルオーバー発火・`ValidationError`・`allow` の値と理由）が
-  後から追えるように出力する。検証のエビデンスになる。
-- コメント・ドキュメント・Slack メッセージは日本語。コード識別子は英語。
+  後から追えるように出力する。検証のエビデンスになる
+- コメント・ドキュメント・Slack メッセージは日本語。コード識別子は英語
 
-## Phase 1 の前提（完了）
+## 層をまたぐ不変条件
 
-- フェイルオーバー先は **Amazon Bedrock の同一モデル・マルチ地理圏**。
-  モデルは `claude-sonnet-4-6` に固定し、応答品質の変化という交絡を排除して可用性だけを検証する。
-  - primary: `bedrock/jp.anthropic.claude-sonnet-4-6` @ `ap-northeast-1`（日本国内で推論）
-  - fallback: `bedrock/us.anthropic.claude-sonnet-4-6` @ `us-east-2`（US 圏内で推論）
-- **Bedrock の Claude は Claude 3 Haiku を除き推論プロファイル必須**。単一リージョンを名指しする構成は取れないため、
-  障害単位はリージョンではなく地理圏になる。`global.` プロファイルは US を包含するため fallback 先には使わない。
-- 障害注入は **`mocks/fault_injector.py` によるエラー応答**（429 / 500 / timeout）。API キー無効化は使わない。
-  異常系は `litellm/config.fault.yaml` を読み込ませることで実現し、**`agents/` は一切変更しない**。
-- エージェントには論理モデル名 `sre-agent-model` だけを見せる。リージョンと実モデル ID は LiteLLM 側の関心事。
+**コードを書くときに常に効く制約。** 背景は各 `design.md` と [decisions.md](docs/decisions.md)。
+
+### 第1層・第2層
+
+- エージェントには論理モデル名 `sre-agent-model` だけを見せる。リージョンと実モデル ID は LiteLLM 側の関心事
 - **リトライ（同一デプロイへの再試行）とフォールバック（別デプロイへの切り替え）を必ず切り分ける。**
-  ベースラインは `num_retries: 0`。これを崩すと「成功したのはリトライのおかげか」が判別できなくなる。
+  ベースラインは `num_retries: 0`
+- 第2層のモデルには `strict=True` と `extra="forbid"` を必ず付け、入口は `model_validate_json()` を通す
+  （`json.loads()` を挟まない）。既定の lax モードは `"3"` → `3` を黙って変換する
+- **LLM 出力を修復しない**（[D-012](docs/decisions.md)）。コードフェンス剥がしも `ValidationError` からの
+  再プロンプトも入れない。修復すると「決定的に検知できる」という検証対象そのものが消える
+- **構造化出力の強制をベースラインに入れない**（[D-011](docs/decisions.md)）。壊れた入力が来ないと検知能力が測れない
+- プロンプトには**出力スキーマは書く**が、**「危険な操作を避けよ」は書かない**。
+  書いた時点でその防御が確率的になる（第3層の責務。[D-002](docs/decisions.md)）
 
-詳細は [design.md](docs/phases/phase1-litellm/design.md)、
-結果は [result.md](docs/phases/phase1-litellm/result.md)（2026-09-29 完了・合格）。
+### 第3層
 
-### Phase 2 以降にも効く Phase 1 の知見
-
-- **層の内部状態はシナリオ間で持ち越される。** LiteLLM Router の cooldown で実際に結果が汚染された。
-  状態を持つコンポーネントを検証するときは、シナリオごとのリセット手順を必ず組み込む。
-- **層が自己申告する値を鵜呑みにしない。** `x-litellm-attempted-retries` は実際に 2 回
-  リトライしていても 0 を返した。層の外側（障害注入側）からの裏取りと 2 系統で判定する（[D-009](docs/decisions.md)）。
-- **ヘルスチェックは可用性の指標にならない。** 推論が全滅していても `unhealthy_count: 0` が返る。
-  各層の健全性は実リクエストの成否で測る。
-- **エビデンスのファイル名は使い回さない。** Phase 1 でブロッカー時のログを後の成功ログで上書きした。
-
-## Phase 2 の前提（完了）
-
-- 第2層は役割名 **JSON Validator**、実装は Pydantic v2。**エージェントと同一プロセスのライブラリ**であり、
-  HTTP 境界を持たず、独立したコンテナも無い（[D-010](docs/decisions.md) / [D-013](docs/decisions.md)）。
-  したがって第2層には「層自体のダウン」という障害モードが存在しない。第1層・第3層との非対称性。
-- **全モデルに `strict=True` と `extra="forbid"` を付ける。** 既定の lax モードは `"3"` → `3`、
-  `"yes"` → `True` を黙って変換するため、外すと型不一致シナリオ（V-05）が検証を通過し判定基準が崩れる。
-- **LLM 出力を修復しない。** コードフェンス剥がしなどの前処理も、`ValidationError` からの
-  再プロンプトも入れない（[D-012](docs/decisions.md)）。修復すると最終結果が確率的になり、
-  「決定的に検知できる」という検証対象そのものが消える。
-- **構造化出力の強制（`response_format` / tool use）はベースラインに入れない**（[D-011](docs/decisions.md)）。
-  壊れた入力が来ないと検知能力が測れない。強制との比較は C-01 として別途実施する。
-- 異常系は「層の障害」ではなく**入力の異常**の注入。単体 fixture / `fault_injector` 経由 / 実 LLM の
-  3 経路に分離し、**非決定的な実 LLM 由来のシナリオは判定基準に使わない**。
-- **構造的に正しく意味的に危険な入力は第2層を通過させる**（N-01）。これは欠陥ではなく責務境界の証明で、
-  ここで止めると第2層がポリシー判定を始めたことになる（[D-002](docs/decisions.md) 違反）。
-- プロンプトには**出力スキーマは書く**（インターフェースの提示）が、**「危険な操作を避けよ」は書かない**
-  （書いた時点でその防御が確率的になる。第3層の責務）。
-
-詳細は [design.md](docs/phases/phase2-pydantic/design.md)、
-結果は [result.md](docs/phases/phase2-pydantic/result.md)（2026-09-29 完了・合格）。
-
-### Phase 3 以降にも効く Phase 2 の知見
-
-- **障害注入が効いていないと検証は「静かに正常系」になる。** injector が起動せず第1層が実 Bedrock に
-  フォールバックし、R-01 の全シナリオが終了コード 0 になった。異常系では「注入が届いたこと」を
-  層の外側から必ず確認する（[D-014](docs/decisions.md)）。**全部合格しているときほど疑う。**
-- **上位層の正しい挙動が下位層の障害注入を打ち消す。** 第1層のフォールバックは可用性としては正しく、
-  同時に「第2層に壊れた入力を届ける」意図を無効化する。層を重ねるほどこの干渉は起きやすい。
-- **strict モードは JSON 入力と Python 入力で挙動が違う。** `model_validate(dict)` は strict だと
-  enum に実インスタンスを要求し、素の文字列は `is_instance_of` で落ちる。
-  第2層の入口は必ず `model_validate_json()` を通す（`json.loads()` を挟まない）。
-- **`timeout` を決めるのは出力トークン数の上限であり、それはスキーマの `max_length` で決まる。**
-  スキーマを変えたら第1層の `timeout` を見直す（L-01 で 30 → 60 に再決定）。
-- **構造化出力の強制は「弱められたスキーマ」しか強制できない。** Bedrock は `minimum` / `maximum` /
-  `minLength` / `maxLength` / `pattern` を受け付けない。第2層のスキーマを正本とし、
-  強制側はそこから劣化させたコピーとして扱う。
-
-## Phase 3 の前提（完了）
-
-- 第3層は **OPA / Rego**。エージェントとは別プロセスで、`POST /v1/data/sre/agent/decision` に
-  問い合わせる。`allow` と `violated_rules` を**1 回の評価で同時に**受け取る（拒否と理由は不可分）。
-- **`default allow := false` を書かない。** ポリシー未ロードは `result` ごと返らない（undefined）状態として
-  表面化させ、エージェント側が Fail-Closed する。default を置くと「評価して拒否した」と
-  「ポリシーが無い」が同じ `allow: false` に潰れ、Slack の通知パターン3 と 4 を区別できなくなる。
-- **deny は戻り値、評価不能は例外**（`PolicyUnavailableError`）。遮断されたという結果は同じでも、
-  人間に見せるものと次の一手が違う（[D-015](docs/decisions.md)）。
-- **OPA の応答を無検証で信じない。** `PolicyDecision` は `strict=True` / `extra="forbid"` で、
-  `allow` の型不一致・未知のキー・自己矛盾（違反つき allow / 理由なき deny）はすべて
-  評価不能に倒す（[D-017](docs/decisions.md)）。
+- **`default allow := false` を書かない。** ポリシー未ロードは undefined として表面化させ、
+  エージェント側が Fail-Closed する。default を置くと通知パターン 3 と 4 が区別できなくなる
+- **deny は戻り値、評価不能は例外**（`PolicyUnavailableError`）（[D-015](docs/decisions.md)）
+- OPA の応答も `strict=True` / `extra="forbid"` で検証し、自己矛盾は評価不能に倒す（[D-017](docs/decisions.md)）
 - **ポリシーの判定に使う語彙を `agents/` に書かない。** `production` や `kubectl_delete_*` による
-  条件分岐は `opa/` の中だけに存在する（pytest で強制している）。
-  例外は `schemas.py` / `prompts.py` で、そこは語彙の定義と提示であって判定ではない。
-- **`input` は `{"action": ..., "trace_id": ...}`。Rego は `trace_id` を参照しない**（[D-016](docs/decisions.md)）。
-  判定材料と監査の突合キーを構造的に分ける。Trace ID は OPA の Decision Log に残り、
-  Slack のボタン `value` に入るのもこの値だけになる。
-- 実行層は dry-run ログのみ。`allow: true` かつ `dry_run: false` でも実 `kubectl` は発行しない。
+  条件分岐は `opa/` の中だけに存在する（pytest で強制）。例外は `schemas.py` / `prompts.py`
+- `input` は `{"action": ..., "trace_id": ...}`。**Rego は `trace_id` を参照しない**（[D-016](docs/decisions.md)）
 
-詳細は [design.md](docs/phases/phase3-opa/design.md)、
-結果は [result.md](docs/phases/phase3-opa/result.md)（2026-09-30 完了・合格）。
+### エスカレーション・実行層
 
-### Phase 4 以降にも効く Phase 3 の知見
-
-- **`docker compose restart` は設定を切り替えない。** コンテナを作り直さないため `command` の
-  `${LITELLM_CONFIG_FILE}` も環境変数も古いままになる。設定を変えるときは
-  **`up -d --force-recreate`**、`restart` は状態（Router の cooldown 等）の初期化にのみ使う。
-- **注入が効いていることの確認は「注入器が動いているか」では足りない**（[D-018](docs/decisions.md)）。
-  リクエストが実際にその経路を通ったこと（`x-litellm-model-id` / 直叩きの生応答）で確認する。
-  注入の失敗は偽の合格にも**偽の不合格**にもなる。どちらに転ぶかは運である。
-- **Rego の undefined は allow 側に倒れる。** 必須フィールドが欠けた入力はルールが発火せず通る。
-  第2層が先に立っているのは安全上の必要条件であり、整理のための並びではない。
-  だからといって Rego に構造検証を書かない（[D-002](docs/decisions.md) を逆に崩す）。
-- **第3層は input の真正性を検証できない。** environment と namespace を揃えて詐称されると通る。
-  第3層が評価しているのは「エージェントの自己申告」である。
-- **`timeout` の決め方は層によって難易度が違う。** 第3層は定常 4 ms 台で `timeout: 3.0` の
-  52 倍の余裕があり、実測した結果「変える必要がない」が結論になった。規律は同じでも結論は同じとは限らない。
-
-## Phase 4 の前提（完了）
-
-- エスカレーション層は**送出と受信で非対称**（[D-019](docs/decisions.md)）。送出はエージェントと
-  同一プロセスのライブラリ（`slack/notifier.py`）、受信は独立した常駐プロセス（`slack/handler.py`）。
-  送出の失敗をそのインシデント処理の結果（終了コード 5）に反映させる必要があるため。
-- **ボタンの `value` は Trace ID のみ。** 実行内容はストアから復元し、**復元時に第2層で再検証する**
-  （[D-020](docs/decisions.md)）。ストアはこの PoC で初めて登場する可変の永続状態であり、無検証で信じない。
-- **排他はストアの条件付き更新（CAS）に任せる**（[D-024](docs/decisions.md)）。
-  二重押下も Slack の再送も同じ経路で弾く。**`X-Slack-Retry-Num` で弾かない**（ヘッダの無い
-  二重押下が素通りする）。`chat.update` でボタンを消すのは結果の表示であって、ロックではない。
-- **承認期限の判定は承認の CAS の中に入れる**（[D-025](docs/decisions.md)）。満了ジョブに任せると
-  「期限は過ぎたがまだ pending」の窓で承認が通る。**却下は期限後も通す**（明示的に断る操作は常に安全側）。
-- **表示する期限は実効値**（`actionable_until()` = min(承認期限, 提案時刻 + TOCTOU 閾値)）。
-  TTL と TOCTOU を独立に設定できる以上、短いほうが実効的な窓になる。
+- 送出はインプロセス、**受信は独立プロセス**（[D-019](docs/decisions.md)）。
+  送出の失敗をそのインシデント処理の結果（終了コード 5）に反映させるため
+- **受信プロセスはクラスタの資格情報を持たない**（[D-027](docs/decisions.md)）。`slack/handler.py` から
+  `agents.execution` / `agents.k8s` / `kubernetes` に到達できないことを pytest で強制している
+- ボタンの `value` は Trace ID のみ。実行内容はストアから復元し、**復元時に第2層で再検証する**（[D-020](docs/decisions.md)）
+- 排他はストアの CAS に任せる。**`X-Slack-Retry-Num` で弾かない**（[D-024](docs/decisions.md)）
+- 承認期限の判定は承認の CAS の中に入れる。**却下は期限後も通す**（[D-025](docs/decisions.md)）。
+  表示する期限は実効値 = min(承認期限, 提案時刻 + TOCTOU 閾値)
 - **確認強度・承認権限を操作の種別で出し分けない**（[D-021](docs/decisions.md)）。
-  危険度は第3層が `violated_rules` として既に返しているので、必要なら Rego 側に持たせる。
-- **承認時に第3層へ再問い合わせしない。`policy_override` として監査に残す**（[D-023](docs/decisions.md)）。
-  これはストアの `audit_log` にしか残らず、OPA の Decision Log には出ない。
-- 送出の失敗（`notify_failed` / 終了コード 5）と実行の失敗（`execution_failed`）と
-  更新の失敗（`slack.failed` + `method=chat.update`）は**すべて別の値**にする。
-
-詳細は [design.md](docs/phases/phase4-slack/design.md)、
-結果は [result.md](docs/phases/phase4-slack/result.md)（2026-10-01 完了・合格）。
-
-## Phase 5 の前提（完了）
-
-- 実行層は**本物**。対象は使い捨ての kind クラスタのみで、実クラスタには発行しない（[D-026](docs/decisions.md)）。
-  `ProposedAction.dry_run` は **server-side dry-run**（`dryRun=All`）に対応づく。
-  API サーバまで届いて認可も検証も通り、永続化だけされない（クライアント側で「送らない」のでは何も検証できない）。
-- **受信と実行を分離する**（[D-027](docs/decisions.md)）。`slack/handler.py` は `approved` にするまでで終わり、
-  **クラスタの資格情報を持たない**。実行は `agents/executor.py`。
-  `handler.py` から `agents.execution` / `agents.k8s` / `kubernetes` に到達できないことを pytest で強制している。
-- **実行結果は「サーバからの応答があったか」だけで 3 分類する**（[D-028](docs/decisions.md)）。
-  2xx → `executed` / 4xx → `execution_failed` / **5xx・タイムアウト・接続断 → `unknown`**。
-  **`unknown` に再試行ボタンを出さない。** パターン4 に承認ボタンを出さないのと同じ規律。
-  操作ごとの冪等性で再試行可否を変えない（[D-021](docs/decisions.md) に抵触する）。
-- **`~/.kube/config` へフォールバックしない。** `load_kube_config()` を引数なしで呼ぶと kind の **admin** が
-  拾われ、RBAC で止まるはずの操作が全部通る。専用の `K8S_KUBECONFIG` が未設定なら実行しない。
-- **再開は「アクションの実行」であって「思考の再開」ではない**（[D-029](docs/decisions.md)）。
-  承認後に LLM を呼び直さない。これが [D-001](docs/decisions.md) の再検討に対する結論。
-- 実行層は Kubernetes API クライアント（[D-030](docs/decisions.md)）。`kubectl` のサブプロセスにしない。
-  **裏取りには `kubectl` を使う**（Phase 3 で `docker compose logs opa` を使ったのと同じ位置づけ）。
-- **実行層にポリシーの語彙を書かない。** `agents/k8s.py` / `execution.py` / `executor.py` に
-  環境名・操作名のリテラルが 1 つでも現れたら pytest が落ちる（コメントでも書かない）。
-
-詳細は [design.md](docs/phases/phase5-e2e/design.md)、
-結果は [result.md](docs/phases/phase5-e2e/result.md)（2026-10-01 完了・合格）。
-
-### Phase 5 で得た知見
-
-- **「実行されたのに不明」は実在する。** 上流が 200 を返して `generation` が変わったのに
-  応答だけが届かない状態を実機で作れた。5xx や無応答を「失敗・再試行可」としていたら二重実行していた。
-- **ローカルで検証すると再現しにくくなる障害がある。** kind は localhost にあり実測 max 20.9 ms なので、
-  タイムアウトを縮めても**リクエストが届く前に**切れる。要るのは「早く諦めること」ではなく「送った後に切ること」。
-- **ポリシーを独立に変更できるということは、独立に壊せるということでもある。**
-  `opa/data.json` の 1 行で本番 Pod の削除が `allow: true` になり、止めたのは RBAC だけだった。
-- **揃いすぎた結果は検証の失敗を示唆する。** 権限表の生成スクリプトが全件 `no` を返していた
-  （zsh は未クォートの変数を単語分割しない）。Phase 2 の「全部合格しているときほど疑う」の逆向き。
-- **自動修正ツールは規律を読まない。** `ruff --fix` が「改修しない」と定めた `mocks/fault_injector.py` を
-  書き換えていた。変更禁止のファイルを機械的な処理の範囲に入れない運用が要る。
-
-### Phase 5 以降にも効く Phase 4 の知見
-
-- **押してみなければ出ない不備がある。** 単体テストが全件通った状態で、実機の押下により 4 件出た。
-  いずれも「1 回の押下」ではなく**押下と状態の関係**（表示と判定の食い違い、拒否時の応答、
-  監査の欠落、期限の窓）に関する不備だった。単体テストは状態を自分で作ってから押すので気づけない。
-- **検証の大半はトンネル無しで回せる。** 署名を自前で計算して `/slack/events` に直接 POST すれば、
-  handler の検証経路（署名・RBAC・CAS・再検証・実行層）はそのまま通る。
-  ngrok / cloudflared が要るのは「人間が実際に押す」ことを見るシナリオだけ。
-- **Slack は失敗しても HTTP 200 を返す**（`ok:false`）。第3層の X-04 と同じ形の罠。
-  `slack_sdk` が例外に変換するのを握り潰さないこと。
-- **Slack は Block Kit の上限超過を黙って切らず `invalid_blocks` で拒否する。**
-  切り詰め（`slack/blocks.py` の `truncate()`）は表示の都合ではなく**送出できるかどうか**であり、
-  無ければ長い `reason` で通知が全損する。
-- **送出の失敗は残るが、受信の失敗は何も残らない。** handler が落ちていると押下の事実が
-  監査ログにすら載らない（N-02）。承認待ちの監視は Slack ではなくストア側で行うしかない。
-- **検証環境を「楽な形」にすると障害の発生箇所が動く。** DM にしたことで `conversations.open` が
-  1 段増え、E 系で最初に失敗したのは `chat.postMessage` ではなくそこだった。
-  同じ理由で `chat.postEphemeral` が DM では使えない（RBAC 拒否が本人に届かない）。
+  危険度は第3層が `violated_rules` として既に返している
+- 承認時に第3層へ再問い合わせしない。`policy_override` として監査に残す（[D-023](docs/decisions.md)）
+- **承認後に LLM を呼び直さない。** 再開は「アクションの実行」であって「思考の再開」ではない（[D-029](docs/decisions.md)）
+- **`~/.kube/config` へフォールバックしない。** 専用の `K8S_KUBECONFIG` が未設定なら実行しない
+- 実行結果は応答の有無で 3 分類: 2xx → `executed` / 4xx → `execution_failed` /
+  **5xx・タイムアウト・接続断 → `unknown`**。**`unknown` に再試行ボタンを出さない**（[D-028](docs/decisions.md)）
+- 実行は Kubernetes API クライアント、**裏取りは `kubectl`**（[D-030](docs/decisions.md)）
+- 実行層にもポリシーの語彙を書かない（`agents/k8s.py` / `execution.py` / `executor.py`。pytest で強制）
+- 送出の失敗（`notify_failed` / 終了コード 5）・実行の失敗（`execution_failed`）・
+  更新の失敗（`slack.failed` + `method=chat.update`）は**すべて別の値**にする
 
 ## 注意点
 
 - **`litellm/` ディレクトリは pip パッケージ `litellm` をシャドーイングする。**
-  リポジトリルートから `import litellm` すると、このディレクトリが名前空間パッケージとして解決されてしまう。
-  LiteLLM は Docker で Proxy として動かし、エージェント側は OpenAI SDK 経由で叩く前提なので通常は問題にならないが、
-  ホスト側で litellm を import する必要が出た場合はこの点を思い出すこと。
+  リポジトリルートから `import litellm` すると、このディレクトリが名前空間パッケージとして解決される。
 - **`slack/` ディレクトリは slack_sdk 同梱の非推奨 `slack` パッケージをシャドーイングする。**
-  `litellm/` と同じ構造。リポジトリルートから実行する限り本リポジトリの `slack/` が勝つので問題ないが、
-  **別ディレクトリに置いたスクリプトから `from slack import ...` すると SDK 側が解決され**、
-  `aiohttp` が無いと ImportError になる（実際に踏んだ）。
-  検証用のスクリプトはリポジトリルートに置くか、`python -m slack.<module>` で実行する。
-  `slack_bolt` / `slack_sdk` 自身はこの互換パッケージを参照しないため、本体の動作には影響しない。
+  別ディレクトリに置いたスクリプトから `from slack import ...` すると SDK 側が解決され ImportError になる（実際に踏んだ）。
+  検証用スクリプトはリポジトリルートに置くか `python -m slack.<module>` で実行する。
 - **秘密情報は `.env` のみ。** API キー・Slack トークン・署名シークレットを
   `litellm/config.yaml` や `docker-compose.yml` に直書きしない（`os.environ/` 参照を使う）。
-  `.env` と `.env.local` は gitignore 済み。
-- **破壊的操作を発行してよいのは、使い捨ての kind クラスタに対してだけ**（Phase 5 / [D-026](docs/decisions.md)）。
+- **破壊的操作を発行してよいのは、使い捨ての kind クラスタに対してだけ**（[D-026](docs/decisions.md)）。
   **実クラスタ・既存クラスタへの `kubectl delete` は絶対に発行しない。** 対象は
-  `kind create cluster` で作り `kind delete cluster` で丸ごと消せるものに限り、権限は
-  ServiceAccount の RBAC で絞る（クラスタ管理者権限では実行しない）。
-  Phase 1〜4 の実行層はログ出力のみ（`execute_dry_run()`）であり、この改訂は Phase 5 の実行層にだけ及ぶ。
-- **異常系は「壊して確かめる」のが本体。** API キーの無効化、壊れた JSON の注入、禁止コマンドの投入といった
-  故意の failure injection がこのリポジトリの主要な作業であり、バグではない。
-- Slack の Interactivity 受信には外部から到達可能な URL が必要（ngrok 等）。ローカル URL では検証できない。
+  `kind delete cluster` で丸ごと消せるものに限り、権限は ServiceAccount の RBAC で絞る。
+- **`assets/` に置く前に必ず秘密情報を除去する。** LiteLLM は `--detailed_debug` で起動しており、
+  ログに master key・AWS の識別子・リクエスト本文が含まれうる。`assets/` は gitignore していない。
 
 ## フェーズを進めるときの流れ
 
@@ -314,7 +142,10 @@ curl -s http://localhost:8181/health
 2. 正常系 → 異常系の順に実装・実行する。異常系まで確認して初めてそのフェーズは完了。
 3. 実行結果・生ログ・判定を `result.md` に、エビデンスを `assets/` に残す。
 4. **design.md の判定基準は結果が出た後に書き換えない。** 想定と違った場合は result.md の「考察」に書く。
-5. 設計判断が変わる内容なら `docs/decisions.md` に追記する。
-6. ルート README のロードマップ表の「状態」列を更新する。
+5. 設計判断が変わる内容なら [docs/decisions.md](docs/decisions.md) に追記する。
+6. 新たに踏んだ失敗は [docs/lessons.md](docs/lessons.md) に追記する。**CLAUDE.md には足さない。**
+   CLAUDE.md に入れてよいのは「今後コードを書くときの挙動を変える制約」だけで、検証の記録ではない。
+7. ルート README のロードマップ表の「状態」列を更新する。
 
-ドキュメントの構成と運用ルールの詳細は [docs/README.md](docs/README.md)。
+**異常系を回す前に [docs/lessons.md](docs/lessons.md) の「検証が静かに正常系になる」を読むこと。
+全部合格しているときほど疑う。**
