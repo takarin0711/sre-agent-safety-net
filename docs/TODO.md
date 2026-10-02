@@ -25,7 +25,14 @@
 結果・考察・提言は [phases/phase4-slack/result.md](phases/phase4-slack/result.md)。
 実装中・実行中に出た設計判断は [D-019〜D-025](decisions.md)。
 
-**次は Phase 5（E2E）。着手前に design.md を書き切る。**
+**Phase 5 の設計を確定（2026-10-01）。** [phases/phase5-e2e/design.md](phases/phase5-e2e/design.md) を書き切った。
+新たな設計判断は [D-026〜D-030](decisions.md)。**CLAUDE.md の破壊的操作の禁止を改訂した**（[D-026](decisions.md)）。
+
+**Phase 5 は完了（2026-10-01）。** 全シナリオを実施し総合判定は合格。
+結果・考察・提言は [phases/phase5-e2e/result.md](phases/phase5-e2e/result.md)。
+実装中・実行中に出た設計判断は [D-026〜D-030](decisions.md)。
+
+**PoC のロードマップ（Phase 1〜5）はこれで全て完了した。**
 
 各フェーズの設計は、別途の仕様書「フォールバック & Handoff フロー図」を前提にしている。
 **どこまでを Phase N で扱い、どこからを次に渡すかは各 design.md 第0章の対応表が正**。
@@ -36,7 +43,7 @@
 | Phase 2 (JSON Validator) | 完了 | 完了 | **完了（合格）** |
 | Phase 3 (OPA) | 完了 | 完了 | **完了（合格）** |
 | Phase 4 (Slack) | 完了 | 完了 | **完了（合格）** |
-| Phase 5 (E2E) | 未着手 | 未着手 | 未着手 |
+| Phase 5 (E2E) | 完了 | 完了 | **完了（合格）** |
 
 ---
 
@@ -512,31 +519,144 @@ docker run --rm -v "$PWD/opa:/policies:ro" openpolicyagent/opa:1.21.0 test /poli
 
 ---
 
-## Phase 5 以降の準備タスク
+## Phase 5 の設計と実施手順
 
-いずれも着手時に `design.md` を先に書く。
+**設計は完了**（[design.md](phases/phase5-e2e/design.md)）。以下は実施手順（design.md 第8章）の写し。
 
-### Phase 5 (E2E)
+確定した方針:
 
-**実行層を本物にする（ローカル k8s）を Phase 5 の目玉に据える。** 2026-10-01 に方針として合意。
+- **実行層を本物にする。** 対象は使い捨ての kind クラスタのみ。実クラスタへは発行しない（[D-026](decisions.md)）。
+  `ProposedAction.dry_run` を **server-side dry-run** に対応づける（初めてこの値が意味を持つ）
+- **受信と実行を分離する**（[D-027](decisions.md)）。`slack/handler.py` は `approved` にするところまでで終え、
+  実行は `agents/executor.py`（常駐）が行う。**handler に kubeconfig を与えない**。
+  [D-024](decisions.md) が明示していた「実行が実 API 呼び出しになった時点で成立しない」条件が満たされたため
+- **実行結果は「サーバからの応答があったか」だけで 3 分類する**（[D-028](decisions.md)）。
+  2xx → `executed` / 4xx → `execution_failed` / 5xx・タイムアウト・接続断 → `unknown`。
+  **`unknown` に再試行ボタンを出さない**（パターン4 に承認ボタンを出さないのと同じ規律）
+- **再開は「アクションの実行」であって「思考の再開」ではない**（[D-029](decisions.md)）。
+  承認後に LLM を呼び直さない。**これが [D-001](decisions.md) の再検討に対する結論**
+- **実行層は Kubernetes API クライアント**（[D-030](decisions.md)）。`kubectl` のサブプロセスにしない。
+  裏取りには `kubectl` を使う
+- 終了コードに **6**（確定的な失敗）と **7**（実行有無が不明）を足す。**7 が最重**
+- ngrok / cloudflared は**人間が実際に押すシナリオだけ**に要る（Phase 4 考察8）
 
-- [ ] **CLAUDE.md の「実際の破壊的操作を実行しない」を改訂する。** 禁止の対象を
-      **実クラスタに限定**し、使い捨ての kind / minikube は対象外とする。
-      壊すために作る環境なので、`kind delete cluster` で消せることが前提。
-      設計判断として decisions.md に残す（**D-026 予定**。D-025 は Phase 4 の承認期限判定で使用済み）
-- [ ] kind でクラスタを作り、ServiceAccount の RBAC を最小権限にする。
-      **第3層が許可しても RBAC で実行できない**状態を作る（Phase 3 提言5 の実証）
-- [ ] これにより Phase 4 で「注入できない」として外したものが検証可能になる:
-      - 通知パターン5（実行時エラー・再試行）← RBAC 拒否で本物のエラーを注入できる
-      - `unknown` ステート（実行有無が不明）← API サーバを落としてタイムアウトを作れる
-      - `execution_failed` からの再試行（`retry_count`）
-      - TOCTOU（承認待ちの間に Pod を消す / 戻す）
-      - N-01 の限界（詐称したアクションが RBAC で止まること）
-- [ ] **ngrok は Phase 5 でも必要。** k8s 操作は「出ていく」通信であり、
-      入口が要るのは Slack のボタン押下だけという構造は変わらない
-- [ ] `docs/phases/phase5-e2e/design.md` を書く
-- [ ] **中断・再開の状態管理を自前で実装する必要がある**（D-001 でフレームワークを入れないと決めたため）。
-      Phase 5 の設計時に D-001 の再検討余地あり
+実装（**2026-10-01 に単体まで完了。pytest 220 件パス**）:
+
+- [x] `k8s/kind-cluster.yaml` / `workloads.yaml` / `rbac.yaml` / `audit-policy.yaml` /
+      `setup.sh` / `make-kubeconfig.sh`（namespace は `opa/data.json` と一致させた）
+- [x] `agents/k8s.py`（`operation × kind` → API のディスパッチ表 **16 件**。語彙の漏れは K-06 で検査）
+- [x] `agents/execution.py`（実 API の発行。**応答の有無だけで 3 分類**して返す）
+- [x] `agents/executor.py`（常駐。`claim` → 実行 → 記録 → 通知。起動時に `executing` を `unknown` に倒す）
+- [x] `slack/store.py`（`executing` / `abandoned`、`execution_started_at`、`retry_count`、
+      `claim_for_execution()` / `retry()` / `abandon()` / `recover_executing()`、既存 DB のマイグレーション）
+- [x] `slack/blocks.py`（パターン5 の 2 種。ボタンの有無は `kind` と `status` だけで決まる）
+- [x] `slack/handler.py`（**`agents.execution` の import を外した**。承認は `approved` まで。再試行 / 中止を追加）
+- [x] `agents/schemas.py` / `agents/escalation.py` / `agents/main.py`（終了コード 6 / 7）
+- [x] `tests/test_execution_dispatch.py`（K 系 **63 件**）/ `tests/test_executor_state.py`（W 系 12 件）/
+      `tests/fakes.py` の `FakeApis` / `conftest.py`（**テストが実クラスタに触れないようにする**）
+- [x] `.env.example` / `requirements.txt`（`kubernetes>=31`）
+- [ ] `mocks/k8s_proxy.py`（X-02 用。**`fault_injector.py` は改修しない**）
+
+**Phase 4 のテストを Phase 5 の構成に合わせて更新した**（承認と実行が別プロセスになったため）。
+T-05 / T-06 / T-07 / G-01 / G-05 / G-06 は `handler.approve()` 1 本から
+「承認 → `executor.run_once()`」の通しに変えた。**確かめている性質は変えていない**
+（押した内容と実行内容の一致・壊れたレコードが実行層に到達しないこと・再送でも実行は 1 回）。
+むしろ「実行層のログが無い」ではなく**「API を 1 度も呼んでいない」**で見るようになり、厳しくなっている。
+
+事前準備（**完了**）:
+
+- [x] kind v0.33.0 を導入（brew）。ノードイメージを
+      `kindest/node:v1.37.0@sha256:a1ed56cf…` に**ダイジェストまで固定**
+- [x] `./k8s/setup.sh` でクラスタ構築 → **`kind delete cluster` で消せることを先に確認し、作り直した**
+- [x] ServiceAccount の長命トークン（`kubernetes.io/service-account-token` の Secret）から
+      kubeconfig を生成し `var/` に置いた（**未決事項2 の回答**。`kubectl create token` の短命トークンは
+      検証中の失効が RBAC 403 と区別できないため使わない）
+- [x] `kubectl auth can-i` で権限表（design.md 3.10）と一致を確認
+      （`assets/prep-auth-can-i.txt`）
+
+実行（**完了 2026-10-01**。design.md 4.7 の順序で実施した）:
+
+- [x] K 系（63 件）→ W 系（12 件）を pytest で通す。**クラスタを作る前に固めた**
+- [x] **R 系（RBAC）。R-01 が本フェーズの中心**: 第3層が deny → 人間が `policy_override` で承認 →
+      **403 で止まり、PVC は同一 UID のまま残った**。3 件とも受信プロセスに kubeconfig なし
+- [x] Z 系（E2E 通し 7 本。実 LLM 版と fixture 固定版の両方）。前後で `resourceVersion` / `uid` を取り、
+      Z-02 / Z-04 / Z-05 は**クラスタが完全に無変化**であることを確認
+- [x] X 系（実行の異常 6 本）。**X-01b で「実行されたのに unknown」を両面から記録した**
+- [x] N 系（限界 3 本）/ D-01（SHA-256 完全一致）/ L-01（p50 1.2 ms / max 20.9 ms）/ C 系（考察9〜11）
+- [x] 回帰（pytest 220 件・`opa test` 18 件・Phase 1 F-01 の再実行）
+- [x] result.md / decisions.md（D-026〜D-030 に実測を追記）/ CLAUDE.md / README / TODO.md を更新
+
+実行中に追加したもの:
+
+- [x] `mocks/k8s_proxy.py`（4 モード。標準ライブラリのみ）/ `k8s/make-fault-kubeconfig.sh`
+- [x] `litellm/config.fault_all.yaml`（**第1層の全滅**。Phase 1 の N-01 が偶発的な観測しか
+      残していなかった穴も埋めた）
+- [x] `k8s/workloads.yaml` に**名前が固定された Pod**（`payment-worker`）。
+      Deployment の Pod は名前が毎回変わり、fixture から決定的に指名できない
+- [x] `tests/fixtures/phase5/`（R / Z / N 系の入力 7 件）
+
+### Phase 5 の結果サマリ
+
+全シナリオ実施済み。判定基準 1〜12 すべて合格。
+
+| ID | 結果 | 要点 |
+| --- | --- | --- |
+| K / W 系 | 合格 | pytest 220 件。実行層のディスパッチと結果分類をクラスタ無しで固定 |
+| R-01〜R-04 | 合格 | **第3層が deny → 人間が承認 → RBAC が 403 で止める。** 対象は同一 UID のまま残存 |
+| Z-01〜Z-06 | 合格 | 入口からクラスタの状態変化まで到達。止まったときは `resourceVersion` が完全一致 |
+| Z-05 | 合格（限界） | 第1層の全滅では **Slack に 1 件も出ない**（多層防御で唯一人間に届かない層） |
+| X-01b | 合格 | **`generation` 2→3 と変わっているのに記録は `unknown`**。D-028 の実例 |
+| X-02〜X-05 | 合格 | 5xx / 接続断 / クラッシュ / 再試行投入すべて安全側。`unknown` は再試行させない |
+| N-01 | 合格（限界） | 同名で作り直された対象を消してしまう。時間ベースの TOCTOU では防げない |
+| N-02 | 合格（限界） | **`opa/data.json` の 1 行で本番 Pod 削除が `allow: true` になり、RBAC だけが止めた** |
+| N-03 | 合格（限界） | executor 停止中は `approved` で滞留。Slack 上は「承認済み」に見える |
+| D-01 | 合格 | 実行層の組み立て・パターン5 とも 10 回の SHA-256 が完全一致 |
+| L-01 | 計測 | p50 1.2 ms / p95 3.8 ms / max 20.9 ms（n=140）。`timeout` 10.0 は max の約 478 倍 |
+
+### 実行中に判明した重要事項
+
+- **「実行されたのに不明」は実在した**（X-01b）。上流が 200 を返し `generation` が変わったのに
+  応答だけが届かない。**5xx や無応答を「失敗・再試行可」としていたら本番を 2 回再起動していた**
+- **もっとも重要な注入が設計どおりには効かなかった**（考察2）。kind は localhost にあるため、
+  タイムアウトを縮めても**リクエストが届く前に**切れる。要るのは「送った後に切ること」だった。
+  **ローカルで検証すると再現しにくくなる障害がある**
+- **ポリシーを独立に変更できるということは、独立に壊せるということでもある**（N-02）。
+  第3層は自分の参照データが間違っていることを検知できない
+- **分離は権限のために選んだが、付いてきたのは「落ちたことを観測できる」性質だった**（考察4）
+- **[D-001](decisions.md) の再検討は「代償ではなかった」で決着した**（考察11）。
+  checkpointer が解くのは思考の再開であって、本 PoC が必要としたのはアクションの再開
+
+### 事前準備・実装で判明したこと
+
+- **未決事項4 の回答: server-side dry-run は `delete` にも効く。** `dryRun=All` で **200** が返り、
+  監査ログにもリクエストが残る一方、Pod も Deployment も変化しない。
+  「黙って実行しない」のではなく「API サーバまで届いて永続化されない」ことを実測できた
+- **未決事項8 の回答: kind で監査ログを有効にできる。** k8s 1.31 以降の kubeadm は v1beta4 で
+  **`extraArgs` が map ではなくリスト**になっている点だけ注意。403 が RBAC によるものである裏取りは
+  `authorization.k8s.io/decision: forbid` で取れる
+- **未決事項5 の回答: タイムアウト時に送信済みかは判別できない。** Python クライアントが
+  `ApiException` に変換するのは `SSLError` だけで、他は urllib3 の例外がそのまま出る。
+  **これ自体が [D-028](decisions.md) の裏付けになった**
+- **`~/.kube/config` へのフォールバックを禁止した。** `load_kube_config()` を引数なしで呼ぶと
+  kind の **admin** が拾われ、**RBAC で止まるはずの操作が全部通って判定基準5 が静かに無意味になる**。
+  専用の `K8S_KUBECONFIG` を必須にした（未設定なら実行しない）
+- **K-06（語彙の漏れ検査）が自分のコメントで落ちた。** 「語彙を書くな」と書いた注釈に語彙が入っていた。
+  検査に例外を足さず**コメントのほうを書き換えた**（例外を足すと検査が緩む）
+- **エビデンス生成スクリプトが全件 `no` を返していた**（zsh は未クォートの変数を単語分割しない）。
+  危うく「権限が一切付いていない」という誤った証拠を保存するところだった。
+  **全部同じ値のときほど疑う**（Phase 2 の教訓の変奏）
+- **`ruff --fix` が `mocks/fault_injector.py` を書き換えていた**（`# noqa: N802` の削除）。
+  design.md が「改修しない」と定めたファイルなので revert した。自動修正の範囲にも注意がいる
+
+### 積み残し（Phase 5 としては完了扱い）
+
+- [ ] executor を**別プロセスとして複数**同時起動する検証（W-01 はスレッドで確認）
+- [ ] 常駐モードのポーリング遅延の体感評価（検証はすべて `--once` で駆動した）
+- [ ] `retry_count` 上限到達後の通知文面（ボタンは消えるが、上限到達を文面で明示していない）
+- [ ] 実クラスタ（ネットワーク越し）でのレイテンシと `unknown` 発生率
+- [ ] `kubectl_describe` の代替実装は Event を数えるだけで、人間が読む情報になっていない
+- [ ] node（クラスタスコープ）に `namespace` が申告される非対称の整理
+- [ ] 監査ログの外部保全・ポリシー bundle の署名検証（Phase 3・4 からの継続）
 
 ---
 

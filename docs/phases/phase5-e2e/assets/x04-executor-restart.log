@@ -1,0 +1,3 @@
+{"event": "executor.start", "layer": "execution", "once": true, "kubeconfig_configured": true, "poll_seconds": 2.0, "status": "approved"}
+{"event": "executor.recovered", "layer": "execution", "trace_id": "6552a716-bc2e-484a-b9b2-f911a8132593", "status": "unknown"}
+{"event": "slack.notified", "layer": "execution", "trace_id": "6552a716-bc2e-484a-b9b2-f911a8132593", "kind": "execution_unknown", "channel": "D-CHANNEL", "message_ts": "1790849043.944759", "has_thread": false}

@@ -1,0 +1,15 @@
+# Phase 5: 実ワークスペースから読み戻した通知（届いたことの証拠。D-018）
+
+text(先頭)                                       buttons?  action_id
+:hourglass_flowing_sand: *[承認済み・実行待ち]* *承認者:*  False     -
+[CRITICAL] 実行の有無が不明です（6ea3e5bb-5c55-41c8-8c5e- False     -
+:hourglass_flowing_sand: *[承認済み・実行待ち]* *承認者:*  False     -
+[CRITICAL] 実行の有無が不明です（4f7c28aa-20a0-45f3-bbb4- False     -
+:hourglass_flowing_sand: *[承認済み・実行待ち]* *承認者:*  False     -
+[CRITICAL] 実行の有無が不明です（270fae55-c04a-48fb-b75d- False     -
+:hourglass_flowing_sand: *[承認済み・実行待ち]* *承認者:*  False     -
+[CRITICAL] 実行の有無が不明です（6eb4b72b-eb57-49df-9741- False     -
+:hourglass_flowing_sand: *[承認済み・実行待ち]* *承認者:*  False     -
+[CRITICAL] 実行の有無が不明です（c5960312-bcf2-4e26-b54e- False     -
+:hourglass_flowing_sand: *[承認済み・実行待ち]* *承認者:*  False     -
+[CRITICAL] 実行の有無が不明です（6552a716-bc2e-484a-b9b2- False     -

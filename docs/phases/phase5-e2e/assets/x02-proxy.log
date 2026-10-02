@@ -1,0 +1,2 @@
+{"source": "k8s_proxy", "event": "start", "mode": "server_error", "upstream": "https://127.0.0.1:64940", "port": 8081}
+{"source": "k8s_proxy", "mode": "server_error", "method": "PATCH", "path": "/apis/apps/v1/namespaces/prod/deployments/payment-api", "forwarded": false}

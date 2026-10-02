@@ -1,0 +1,19 @@
+# Phase 5 R 系: 第3層の判定と実行権限が独立であることの実測
+# 2026-10-01T18:56:33+09:00 / kind v0.33.0 / ServiceAccount system:serviceaccount:sre-system:sre-agent
+# 期待（design.md 4.3）: 第3層が deny し人間が policy_override で承認しても、RBAC が無ければ実行されない
+
+ID    対象                         第3層     人間       実行結果                 終了    クラスタ側
+r01   prod pvc/payment-data      deny    承認       403 execution_failed 6     PVC は同一 UID のまま残存
+r02   prod pod/payment-worker    deny    承認       403 execution_failed 6     Pod は同一 UID のまま残存
+r03   dev pod/payment-worker     allow   (自律)     executed             0     deletionTimestamp が付いた
+r04   dev pvc/payment-data       deny    承認       403 execution_failed 6     PVC は同一 UID のまま残存
+
+# 受信プロセス（押下を処理する側）は kubeconfig を持たない。それでも承認は成立する（判定基準6）:
+#   r01: {"pressed": "approve", "as": "U-APPROVER", "http": 200, "status_after": "approved", "retry_count": 0, "kubeconfig_in_receiver": false}
+#   r02: {"pressed": "approve", "as": "U-APPROVER", "http": 200, "status_after": "approved", "retry_count": 0, "kubeconfig_in_receiver": false}
+#   r04: {"pressed": "approve", "as": "U-APPROVER", "http": 200, "status_after": "approved", "retry_count": 0, "kubeconfig_in_receiver": false}
+
+# 403 が RBAC によるものであることの裏取り（API サーバ監査ログ。R 系の実行分のみ）:
+#   delete  persistentvolumeclaims/payment-data    ns=prod   code=403 decision=forbid
+#   delete  pods/payment-worker                    ns=prod   code=403 decision=forbid
+#   delete  persistentvolumeclaims/payment-data    ns=dev    code=403 decision=forbid

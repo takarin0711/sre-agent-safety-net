@@ -1,0 +1,887 @@
+{
+  "channel": "D-CHANNEL",
+  "messages": [
+    {
+      "user": "U-BOT",
+      "type": "message",
+      "ts": "1790849043.944759",
+      "bot_id": "B-BOT",
+      "app_id": "<redacted:slack-app-id>",
+      "text": "[CRITICAL] 実行の有無が不明です（6552a716-bc2e-484a-b9b2-f911a8132593）",
+      "team": "T-WORKSPACE",
+      "bot_profile": {
+        "id": "B-BOT",
+        "deleted": false,
+        "name": "SRE Safety Net Demo App",
+        "updated": 1790838629,
+        "app_id": "<redacted:slack-app-id>",
+        "user_id": "U-BOT",
+        "icons": {
+          "image_36": "https://a.slack-edge.com/80588/img/plugins/app/bot_36.png",
+          "image_48": "https://a.slack-edge.com/80588/img/plugins/app/bot_48.png",
+          "image_72": "https://a.slack-edge.com/80588/img/plugins/app/service_72.png"
+        },
+        "team_id": "T-WORKSPACE"
+      },
+      "blocks": [
+        {
+          "type": "header",
+          "block_id": "VSnkF",
+          "text": {
+            "type": "plain_text",
+            "text": ":rotating_light: [CRITICAL] 実行されたかどうかが判別できません",
+            "emoji": true
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "zC7K4",
+          "fields": [
+            {
+              "type": "mrkdwn",
+              "text": "*対象環境:*\n`production`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*Trace ID:*\n`6552a716-bc2e-484a-b9b2-f911a8132593`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*応答:*\n`応答なし`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*判定:*\n`unknown (実行有無が不明)`",
+              "verbatim": false
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "block_id": "oG35u",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*状況:*\n実行の開始は記録されているが結果が記録されていない（プロセスが落ちた）。実行されたかどうかは判別できないため、自動では再実行しない",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "m3C8i",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*提案されたアクション:*\n```kubectl_rollout_restart  deployment/payment-api @ prod (production)  dry_run=false```",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "jevQr",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*AI の思考ログ（判断理由）:*\n&gt;本番の payment-api が応答しなくなっているため Deployment を再起動したい",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "UQuK2",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": ":bulb: *クラスタの実際の状態を人間が確認してください。* 要求はサーバに届いた可能性があり、結果は保証されていません。**再試行ボタンは出していません**（実行済みのものを再実行すると二重実行になるため）。",
+              "verbatim": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user": "U-BOT",
+      "type": "message",
+      "ts": "1790849035.446599",
+      "edited": {
+        "user": "U-BOT",
+        "ts": "1790849036.000000"
+      },
+      "bot_id": "B-BOT",
+      "app_id": "<redacted:slack-app-id>",
+      "text": ":hourglass_flowing_sand: *[承認済み・実行待ち]* *承認者:* <@U-APPROVER>",
+      "team": "T-WORKSPACE",
+      "bot_profile": {
+        "id": "B-BOT",
+        "deleted": false,
+        "name": "SRE Safety Net Demo App",
+        "updated": 1790838629,
+        "app_id": "<redacted:slack-app-id>",
+        "user_id": "U-BOT",
+        "icons": {
+          "image_36": "https://a.slack-edge.com/80588/img/plugins/app/bot_36.png",
+          "image_48": "https://a.slack-edge.com/80588/img/plugins/app/bot_48.png",
+          "image_72": "https://a.slack-edge.com/80588/img/plugins/app/service_72.png"
+        },
+        "team_id": "T-WORKSPACE"
+      },
+      "blocks": [
+        {
+          "type": "section",
+          "block_id": "WJ8Bz",
+          "text": {
+            "type": "mrkdwn",
+            "text": ":hourglass_flowing_sand: *[承認済み・実行待ち]*\n*承認者:* <@U-APPROVER>\n*Trace ID:* `6552a716-bc2e-484a-b9b2-f911a8132593`",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "M+Gip",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": "実行プロセスが順に処理します。結果はこのメッセージを書き換えて通知します",
+              "verbatim": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user": "U-BOT",
+      "type": "message",
+      "ts": "1790848998.234109",
+      "bot_id": "B-BOT",
+      "app_id": "<redacted:slack-app-id>",
+      "text": "[CRITICAL] 実行の有無が不明です（c5960312-bcf2-4e26-b54e-f04327fd1ec1）",
+      "team": "T-WORKSPACE",
+      "bot_profile": {
+        "id": "B-BOT",
+        "deleted": false,
+        "name": "SRE Safety Net Demo App",
+        "updated": 1790838629,
+        "app_id": "<redacted:slack-app-id>",
+        "user_id": "U-BOT",
+        "icons": {
+          "image_36": "https://a.slack-edge.com/80588/img/plugins/app/bot_36.png",
+          "image_48": "https://a.slack-edge.com/80588/img/plugins/app/bot_48.png",
+          "image_72": "https://a.slack-edge.com/80588/img/plugins/app/service_72.png"
+        },
+        "team_id": "T-WORKSPACE"
+      },
+      "blocks": [
+        {
+          "type": "header",
+          "block_id": "q6a9W",
+          "text": {
+            "type": "plain_text",
+            "text": ":rotating_light: [CRITICAL] 実行されたかどうかが判別できません",
+            "emoji": true
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "2tQ+e",
+          "fields": [
+            {
+              "type": "mrkdwn",
+              "text": "*対象環境:*\n`production`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*Trace ID:*\n`c5960312-bcf2-4e26-b54e-f04327fd1ec1`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*応答:*\n`応答なし`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*判定:*\n`unknown (実行有無が不明)`",
+              "verbatim": false
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "block_id": "04lzd",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*状況:*\nMaxRetryError: HTTPSConnectionPool(host='127.0.0.1', port=64940): Max retries exceeded with url: /apis/apps/v1/namespaces/prod/deployments/payment-api (Caused by NewConnectionError(\"HTTPSConnection(host='127.0.0.1', port=64940): Failed to establish a new connection: [Errno 61] Connection refused\")) / 応答が無いため、実行されたかどうかは判別できません",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "3zhgo",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*提案されたアクション:*\n```kubectl_rollout_restart  deployment/payment-api @ prod (production)  dry_run=false```",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "+azlA",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*AI の思考ログ（判断理由）:*\n&gt;本番の payment-api が応答しなくなっているため Deployment を再起動したい",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "pSeVG",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": ":bulb: *クラスタの実際の状態を人間が確認してください。* 要求はサーバに届いた可能性があり、結果は保証されていません。**再試行ボタンは出していません**（実行済みのものを再実行すると二重実行になるため）。",
+              "verbatim": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user": "U-BOT",
+      "type": "message",
+      "ts": "1790848995.432259",
+      "edited": {
+        "user": "U-BOT",
+        "ts": "1790848996.000000"
+      },
+      "bot_id": "B-BOT",
+      "app_id": "<redacted:slack-app-id>",
+      "text": ":hourglass_flowing_sand: *[承認済み・実行待ち]* *承認者:* <@U-APPROVER>",
+      "team": "T-WORKSPACE",
+      "bot_profile": {
+        "id": "B-BOT",
+        "deleted": false,
+        "name": "SRE Safety Net Demo App",
+        "updated": 1790838629,
+        "app_id": "<redacted:slack-app-id>",
+        "user_id": "U-BOT",
+        "icons": {
+          "image_36": "https://a.slack-edge.com/80588/img/plugins/app/bot_36.png",
+          "image_48": "https://a.slack-edge.com/80588/img/plugins/app/bot_48.png",
+          "image_72": "https://a.slack-edge.com/80588/img/plugins/app/service_72.png"
+        },
+        "team_id": "T-WORKSPACE"
+      },
+      "blocks": [
+        {
+          "type": "section",
+          "block_id": "B6/ZY",
+          "text": {
+            "type": "mrkdwn",
+            "text": ":hourglass_flowing_sand: *[承認済み・実行待ち]*\n*承認者:* <@U-APPROVER>\n*Trace ID:* `c5960312-bcf2-4e26-b54e-f04327fd1ec1`",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "LjVGc",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": "実行プロセスが順に処理します。結果はこのメッセージを書き換えて通知します",
+              "verbatim": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user": "U-BOT",
+      "type": "message",
+      "ts": "1790848970.934819",
+      "bot_id": "B-BOT",
+      "app_id": "<redacted:slack-app-id>",
+      "text": "[CRITICAL] 実行の有無が不明です（6eb4b72b-eb57-49df-9741-087f9f24d649）",
+      "team": "T-WORKSPACE",
+      "bot_profile": {
+        "id": "B-BOT",
+        "deleted": false,
+        "name": "SRE Safety Net Demo App",
+        "updated": 1790838629,
+        "app_id": "<redacted:slack-app-id>",
+        "user_id": "U-BOT",
+        "icons": {
+          "image_36": "https://a.slack-edge.com/80588/img/plugins/app/bot_36.png",
+          "image_48": "https://a.slack-edge.com/80588/img/plugins/app/bot_48.png",
+          "image_72": "https://a.slack-edge.com/80588/img/plugins/app/service_72.png"
+        },
+        "team_id": "T-WORKSPACE"
+      },
+      "blocks": [
+        {
+          "type": "header",
+          "block_id": "TTHba",
+          "text": {
+            "type": "plain_text",
+            "text": ":rotating_light: [CRITICAL] 実行されたかどうかが判別できません",
+            "emoji": true
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "AY9q7",
+          "fields": [
+            {
+              "type": "mrkdwn",
+              "text": "*対象環境:*\n`production`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*Trace ID:*\n`6eb4b72b-eb57-49df-9741-087f9f24d649`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*応答:*\n`500`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*判定:*\n`unknown (実行有無が不明)`",
+              "verbatim": false
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "block_id": "xGmui",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*状況:*\n500 Internal Server Error: {\"kind\": \"Status\", \"status\": \"Failure\", \"message\": \"injected by k8s_proxy\", \"code\": 500} / 応答が無いため、実行されたかどうかは判別できません",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "NZTwH",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*提案されたアクション:*\n```kubectl_rollout_restart  deployment/payment-api @ prod (production)  dry_run=false```",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "7v2TU",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*AI の思考ログ（判断理由）:*\n&gt;本番の payment-api が応答しなくなっているため Deployment を再起動したい",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "Ru1J/",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": ":bulb: *クラスタの実際の状態を人間が確認してください。* 要求はサーバに届いた可能性があり、結果は保証されていません。**再試行ボタンは出していません**（実行済みのものを再実行すると二重実行になるため）。",
+              "verbatim": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user": "U-BOT",
+      "type": "message",
+      "ts": "1790848969.477359",
+      "edited": {
+        "user": "U-BOT",
+        "ts": "1790848970.000000"
+      },
+      "bot_id": "B-BOT",
+      "app_id": "<redacted:slack-app-id>",
+      "text": ":hourglass_flowing_sand: *[承認済み・実行待ち]* *承認者:* <@U-APPROVER>",
+      "team": "T-WORKSPACE",
+      "bot_profile": {
+        "id": "B-BOT",
+        "deleted": false,
+        "name": "SRE Safety Net Demo App",
+        "updated": 1790838629,
+        "app_id": "<redacted:slack-app-id>",
+        "user_id": "U-BOT",
+        "icons": {
+          "image_36": "https://a.slack-edge.com/80588/img/plugins/app/bot_36.png",
+          "image_48": "https://a.slack-edge.com/80588/img/plugins/app/bot_48.png",
+          "image_72": "https://a.slack-edge.com/80588/img/plugins/app/service_72.png"
+        },
+        "team_id": "T-WORKSPACE"
+      },
+      "blocks": [
+        {
+          "type": "section",
+          "block_id": "ptWID",
+          "text": {
+            "type": "mrkdwn",
+            "text": ":hourglass_flowing_sand: *[承認済み・実行待ち]*\n*承認者:* <@U-APPROVER>\n*Trace ID:* `6eb4b72b-eb57-49df-9741-087f9f24d649`",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "YSU/O",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": "実行プロセスが順に処理します。結果はこのメッセージを書き換えて通知します",
+              "verbatim": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user": "U-BOT",
+      "type": "message",
+      "ts": "1790848934.032209",
+      "bot_id": "B-BOT",
+      "app_id": "<redacted:slack-app-id>",
+      "text": "[CRITICAL] 実行の有無が不明です（270fae55-c04a-48fb-b75d-bdbeb02fa984）",
+      "team": "T-WORKSPACE",
+      "bot_profile": {
+        "id": "B-BOT",
+        "deleted": false,
+        "name": "SRE Safety Net Demo App",
+        "updated": 1790838629,
+        "app_id": "<redacted:slack-app-id>",
+        "user_id": "U-BOT",
+        "icons": {
+          "image_36": "https://a.slack-edge.com/80588/img/plugins/app/bot_36.png",
+          "image_48": "https://a.slack-edge.com/80588/img/plugins/app/bot_48.png",
+          "image_72": "https://a.slack-edge.com/80588/img/plugins/app/service_72.png"
+        },
+        "team_id": "T-WORKSPACE"
+      },
+      "blocks": [
+        {
+          "type": "header",
+          "block_id": "XIr6W",
+          "text": {
+            "type": "plain_text",
+            "text": ":rotating_light: [CRITICAL] 実行されたかどうかが判別できません",
+            "emoji": true
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "vYMf/",
+          "fields": [
+            {
+              "type": "mrkdwn",
+              "text": "*対象環境:*\n`production`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*Trace ID:*\n`270fae55-c04a-48fb-b75d-bdbeb02fa984`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*応答:*\n`応答なし`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*判定:*\n`unknown (実行有無が不明)`",
+              "verbatim": false
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "block_id": "gnZbb",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*状況:*\nProtocolError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response')) / 応答が無いため、実行されたかどうかは判別できません",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "mdTK5",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*提案されたアクション:*\n```kubectl_rollout_restart  deployment/payment-api @ prod (production)  dry_run=false```",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "HUJJB",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*AI の思考ログ（判断理由）:*\n&gt;本番の payment-api が応答しなくなっているため Deployment を再起動したい",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "KKOAf",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": ":bulb: *クラスタの実際の状態を人間が確認してください。* 要求はサーバに届いた可能性があり、結果は保証されていません。**再試行ボタンは出していません**（実行済みのものを再実行すると二重実行になるため）。",
+              "verbatim": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user": "U-BOT",
+      "type": "message",
+      "ts": "1790848932.568879",
+      "edited": {
+        "user": "U-BOT",
+        "ts": "1790848933.000000"
+      },
+      "bot_id": "B-BOT",
+      "app_id": "<redacted:slack-app-id>",
+      "text": ":hourglass_flowing_sand: *[承認済み・実行待ち]* *承認者:* <@U-APPROVER>",
+      "team": "T-WORKSPACE",
+      "bot_profile": {
+        "id": "B-BOT",
+        "deleted": false,
+        "name": "SRE Safety Net Demo App",
+        "updated": 1790838629,
+        "app_id": "<redacted:slack-app-id>",
+        "user_id": "U-BOT",
+        "icons": {
+          "image_36": "https://a.slack-edge.com/80588/img/plugins/app/bot_36.png",
+          "image_48": "https://a.slack-edge.com/80588/img/plugins/app/bot_48.png",
+          "image_72": "https://a.slack-edge.com/80588/img/plugins/app/service_72.png"
+        },
+        "team_id": "T-WORKSPACE"
+      },
+      "blocks": [
+        {
+          "type": "section",
+          "block_id": "Q9u8k",
+          "text": {
+            "type": "mrkdwn",
+            "text": ":hourglass_flowing_sand: *[承認済み・実行待ち]*\n*承認者:* <@U-APPROVER>\n*Trace ID:* `270fae55-c04a-48fb-b75d-bdbeb02fa984`",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "1rWLz",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": "実行プロセスが順に処理します。結果はこのメッセージを書き換えて通知します",
+              "verbatim": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user": "U-BOT",
+      "type": "message",
+      "ts": "1790848899.061079",
+      "bot_id": "B-BOT",
+      "app_id": "<redacted:slack-app-id>",
+      "text": "[CRITICAL] 実行の有無が不明です（4f7c28aa-20a0-45f3-bbb4-c9edb26fa336）",
+      "team": "T-WORKSPACE",
+      "bot_profile": {
+        "id": "B-BOT",
+        "deleted": false,
+        "name": "SRE Safety Net Demo App",
+        "updated": 1790838629,
+        "app_id": "<redacted:slack-app-id>",
+        "user_id": "U-BOT",
+        "icons": {
+          "image_36": "https://a.slack-edge.com/80588/img/plugins/app/bot_36.png",
+          "image_48": "https://a.slack-edge.com/80588/img/plugins/app/bot_48.png",
+          "image_72": "https://a.slack-edge.com/80588/img/plugins/app/service_72.png"
+        },
+        "team_id": "T-WORKSPACE"
+      },
+      "blocks": [
+        {
+          "type": "header",
+          "block_id": "8540v",
+          "text": {
+            "type": "plain_text",
+            "text": ":rotating_light: [CRITICAL] 実行されたかどうかが判別できません",
+            "emoji": true
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "od4og",
+          "fields": [
+            {
+              "type": "mrkdwn",
+              "text": "*対象環境:*\n`production`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*Trace ID:*\n`4f7c28aa-20a0-45f3-bbb4-c9edb26fa336`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*応答:*\n`応答なし`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*判定:*\n`unknown (実行有無が不明)`",
+              "verbatim": false
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "block_id": "fihWy",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*状況:*\nReadTimeoutError: HTTPSConnectionPool(host='127.0.0.1', port=64940): Read timed out. (read timeout=0.002) / 応答が無いため、実行されたかどうかは判別できません",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "Q3zW1",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*提案されたアクション:*\n```kubectl_rollout_restart  deployment/payment-api @ prod (production)  dry_run=false```",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "YoXk2",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*AI の思考ログ（判断理由）:*\n&gt;本番の payment-api が応答しなくなっているため Deployment を再起動したい",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "aS7vi",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": ":bulb: *クラスタの実際の状態を人間が確認してください。* 要求はサーバに届いた可能性があり、結果は保証されていません。**再試行ボタンは出していません**（実行済みのものを再実行すると二重実行になるため）。",
+              "verbatim": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user": "U-BOT",
+      "type": "message",
+      "ts": "1790848897.660479",
+      "edited": {
+        "user": "U-BOT",
+        "ts": "1790848898.000000"
+      },
+      "bot_id": "B-BOT",
+      "app_id": "<redacted:slack-app-id>",
+      "text": ":hourglass_flowing_sand: *[承認済み・実行待ち]* *承認者:* <@U-APPROVER>",
+      "team": "T-WORKSPACE",
+      "bot_profile": {
+        "id": "B-BOT",
+        "deleted": false,
+        "name": "SRE Safety Net Demo App",
+        "updated": 1790838629,
+        "app_id": "<redacted:slack-app-id>",
+        "user_id": "U-BOT",
+        "icons": {
+          "image_36": "https://a.slack-edge.com/80588/img/plugins/app/bot_36.png",
+          "image_48": "https://a.slack-edge.com/80588/img/plugins/app/bot_48.png",
+          "image_72": "https://a.slack-edge.com/80588/img/plugins/app/service_72.png"
+        },
+        "team_id": "T-WORKSPACE"
+      },
+      "blocks": [
+        {
+          "type": "section",
+          "block_id": "TJSwZ",
+          "text": {
+            "type": "mrkdwn",
+            "text": ":hourglass_flowing_sand: *[承認済み・実行待ち]*\n*承認者:* <@U-APPROVER>\n*Trace ID:* `4f7c28aa-20a0-45f3-bbb4-c9edb26fa336`",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "cON8j",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": "実行プロセスが順に処理します。結果はこのメッセージを書き換えて通知します",
+              "verbatim": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user": "U-BOT",
+      "type": "message",
+      "ts": "1790848883.793149",
+      "bot_id": "B-BOT",
+      "app_id": "<redacted:slack-app-id>",
+      "text": "[CRITICAL] 実行の有無が不明です（6ea3e5bb-5c55-41c8-8c5e-1461baa1e257）",
+      "team": "T-WORKSPACE",
+      "bot_profile": {
+        "id": "B-BOT",
+        "deleted": false,
+        "name": "SRE Safety Net Demo App",
+        "updated": 1790838629,
+        "app_id": "<redacted:slack-app-id>",
+        "user_id": "U-BOT",
+        "icons": {
+          "image_36": "https://a.slack-edge.com/80588/img/plugins/app/bot_36.png",
+          "image_48": "https://a.slack-edge.com/80588/img/plugins/app/bot_48.png",
+          "image_72": "https://a.slack-edge.com/80588/img/plugins/app/service_72.png"
+        },
+        "team_id": "T-WORKSPACE"
+      },
+      "blocks": [
+        {
+          "type": "header",
+          "block_id": "cQ+zT",
+          "text": {
+            "type": "plain_text",
+            "text": ":rotating_light: [CRITICAL] 実行されたかどうかが判別できません",
+            "emoji": true
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "/t08k",
+          "fields": [
+            {
+              "type": "mrkdwn",
+              "text": "*対象環境:*\n`production`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*Trace ID:*\n`6ea3e5bb-5c55-41c8-8c5e-1461baa1e257`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*応答:*\n`応答なし`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*判定:*\n`unknown (実行有無が不明)`",
+              "verbatim": false
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "block_id": "5LIax",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*状況:*\nReadTimeoutError: HTTPSConnectionPool(host='127.0.0.1', port=64940): Read timed out. (read timeout=0) / 応答が無いため、実行されたかどうかは判別できません",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "HssCN",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*提案されたアクション:*\n```kubectl_rollout_restart  deployment/payment-api @ prod (production)  dry_run=false```",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "JskDj",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*AI の思考ログ（判断理由）:*\n&gt;本番の payment-api が応答しなくなっているため Deployment を再起動したい",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "j5ySo",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": ":bulb: *クラスタの実際の状態を人間が確認してください。* 要求はサーバに届いた可能性があり、結果は保証されていません。**再試行ボタンは出していません**（実行済みのものを再実行すると二重実行になるため）。",
+              "verbatim": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user": "U-BOT",
+      "type": "message",
+      "ts": "1790848882.297209",
+      "edited": {
+        "user": "U-BOT",
+        "ts": "1790848882.000000"
+      },
+      "bot_id": "B-BOT",
+      "app_id": "<redacted:slack-app-id>",
+      "text": ":hourglass_flowing_sand: *[承認済み・実行待ち]* *承認者:* <@U-APPROVER>",
+      "team": "T-WORKSPACE",
+      "bot_profile": {
+        "id": "B-BOT",
+        "deleted": false,
+        "name": "SRE Safety Net Demo App",
+        "updated": 1790838629,
+        "app_id": "<redacted:slack-app-id>",
+        "user_id": "U-BOT",
+        "icons": {
+          "image_36": "https://a.slack-edge.com/80588/img/plugins/app/bot_36.png",
+          "image_48": "https://a.slack-edge.com/80588/img/plugins/app/bot_48.png",
+          "image_72": "https://a.slack-edge.com/80588/img/plugins/app/service_72.png"
+        },
+        "team_id": "T-WORKSPACE"
+      },
+      "blocks": [
+        {
+          "type": "section",
+          "block_id": "0RGsB",
+          "text": {
+            "type": "mrkdwn",
+            "text": ":hourglass_flowing_sand: *[承認済み・実行待ち]*\n*承認者:* <@U-APPROVER>\n*Trace ID:* `6ea3e5bb-5c55-41c8-8c5e-1461baa1e257`",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "D73OA",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": "実行プロセスが順に処理します。結果はこのメッセージを書き換えて通知します",
+              "verbatim": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

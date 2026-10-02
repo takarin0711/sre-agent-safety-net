@@ -1,0 +1,43 @@
+# Phase 5 事前準備: ServiceAccount sre-agent の実効権限（design.md 3.10 の表との照合）
+# kind v0.33.0 / kindest/node:v1.37.0@sha256:a1ed56cf... / 2026-10-01T18:25:07+09:00
+# user: system:serviceaccount:sre-system:sre-agent
+# 期待: dev/staging は delete pods まで yes、prod は delete pods が no、PVC 削除は全環境 no
+
+NAMESPACE    CHECK                            RESULT
+prod         get pods                         yes
+prod         get pods/log                     yes
+prod         get deployments.apps             yes
+prod         patch deployments.apps           yes
+prod         patch deployments.apps/scale     yes
+prod         delete pods                      no
+prod         get persistentvolumeclaims       yes
+prod         delete persistentvolumeclaims    no
+
+staging      get pods                         yes
+staging      get pods/log                     yes
+staging      get deployments.apps             yes
+staging      patch deployments.apps           yes
+staging      patch deployments.apps/scale     yes
+staging      delete pods                      yes
+staging      get persistentvolumeclaims       yes
+staging      delete persistentvolumeclaims    no
+
+dev          get pods                         yes
+dev          get pods/log                     yes
+dev          get deployments.apps             yes
+dev          patch deployments.apps           yes
+dev          patch deployments.apps/scale     yes
+dev          delete pods                      yes
+dev          get persistentvolumeclaims       yes
+dev          delete persistentvolumeclaims    no
+
+kube-system  get pods                         no
+kube-system  get pods/log                     no
+kube-system  get deployments.apps             no
+kube-system  patch deployments.apps           no
+kube-system  patch deployments.apps/scale     no
+kube-system  delete pods                      no
+kube-system  get persistentvolumeclaims       no
+kube-system  delete persistentvolumeclaims    no
+
+(cluster)    get nodes                        yes

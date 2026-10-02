@@ -56,12 +56,24 @@ python -m slack.readback                  # 送出したメッセージを読み
 python -m slack.handler                   # Interactivity の受信 (常駐。ngrok の転送先)
 python -m slack.expire --dry-run          # 承認期限の満了検知ジョブ
 
+# 実行層 (Phase 5)。**使い捨ての kind クラスタ専用**（D-026）
+./k8s/setup.sh                    # クラスタ作成（--recreate で作り直す）
+./k8s/make-kubeconfig.sh          # ServiceAccount の kubeconfig を var/ に出す
+./k8s/make-fault-kubeconfig.sh    # 実行層の障害注入用（プロキシ経由）
+kind delete cluster --name sre-safety-net   # 丸ごと消す。これが D-026 の前提
+python -m agents.executor         # 実行プロセス（常駐。唯一 K8S_KUBECONFIG を持つ）
+python -m agents.executor --once  # 1 周だけ（検証用）
+K8S_PROXY_MODE=drop_response K8S_PROXY_UPSTREAM=$(cat var/kind-upstream.txt) \
+  K8S_PROXY_CA=var/kind-ca.pem python mocks/k8s_proxy.py   # 「実行されたのに unknown」を作る
+kubectl get deploy payment-api -n dev -o yaml   # 層の外側からの裏取り（実行には kubectl を使わない）
+
 # エージェント実行
 python -m agents.main --prompt "hello"                            # 第2層を通らない (Phase 1 の経路)
 python -m agents.main --prompt "hello" --repeat 20 --interval 15   # F-05 フェイルバック観測
 python -m agents.main --incident "本番の payment-api の Pod が CrashLoopBackOff"   # 第2層 → 第3層
 python -m agents.main --incident "..." --no-policy   # 第2層で止める (Phase 2 の経路の再現)
-# --incident の終了コード: 0 allow / 1 第1層・第2層の失敗 / 2 設定不足 / 3 deny / 4 評価不能
+# --incident の終了コード: 0 実行成功 / 1 第1層・第2層の失敗 / 2 設定不足 / 3 deny / 4 評価不能
+#                          5 通知の送出失敗 / 6 実行が確定的に失敗 / 7 実行の有無が不明（最重）
 
 # テスト
 pytest                            # 第2層 (JSON Validator) の単体検証
@@ -215,6 +227,43 @@ curl -s http://localhost:8181/health
 詳細は [design.md](docs/phases/phase4-slack/design.md)、
 結果は [result.md](docs/phases/phase4-slack/result.md)（2026-10-01 完了・合格）。
 
+## Phase 5 の前提（完了）
+
+- 実行層は**本物**。対象は使い捨ての kind クラスタのみで、実クラスタには発行しない（[D-026](docs/decisions.md)）。
+  `ProposedAction.dry_run` は **server-side dry-run**（`dryRun=All`）に対応づく。
+  API サーバまで届いて認可も検証も通り、永続化だけされない（クライアント側で「送らない」のでは何も検証できない）。
+- **受信と実行を分離する**（[D-027](docs/decisions.md)）。`slack/handler.py` は `approved` にするまでで終わり、
+  **クラスタの資格情報を持たない**。実行は `agents/executor.py`。
+  `handler.py` から `agents.execution` / `agents.k8s` / `kubernetes` に到達できないことを pytest で強制している。
+- **実行結果は「サーバからの応答があったか」だけで 3 分類する**（[D-028](docs/decisions.md)）。
+  2xx → `executed` / 4xx → `execution_failed` / **5xx・タイムアウト・接続断 → `unknown`**。
+  **`unknown` に再試行ボタンを出さない。** パターン4 に承認ボタンを出さないのと同じ規律。
+  操作ごとの冪等性で再試行可否を変えない（[D-021](docs/decisions.md) に抵触する）。
+- **`~/.kube/config` へフォールバックしない。** `load_kube_config()` を引数なしで呼ぶと kind の **admin** が
+  拾われ、RBAC で止まるはずの操作が全部通る。専用の `K8S_KUBECONFIG` が未設定なら実行しない。
+- **再開は「アクションの実行」であって「思考の再開」ではない**（[D-029](docs/decisions.md)）。
+  承認後に LLM を呼び直さない。これが [D-001](docs/decisions.md) の再検討に対する結論。
+- 実行層は Kubernetes API クライアント（[D-030](docs/decisions.md)）。`kubectl` のサブプロセスにしない。
+  **裏取りには `kubectl` を使う**（Phase 3 で `docker compose logs opa` を使ったのと同じ位置づけ）。
+- **実行層にポリシーの語彙を書かない。** `agents/k8s.py` / `execution.py` / `executor.py` に
+  環境名・操作名のリテラルが 1 つでも現れたら pytest が落ちる（コメントでも書かない）。
+
+詳細は [design.md](docs/phases/phase5-e2e/design.md)、
+結果は [result.md](docs/phases/phase5-e2e/result.md)（2026-10-01 完了・合格）。
+
+### Phase 5 で得た知見
+
+- **「実行されたのに不明」は実在する。** 上流が 200 を返して `generation` が変わったのに
+  応答だけが届かない状態を実機で作れた。5xx や無応答を「失敗・再試行可」としていたら二重実行していた。
+- **ローカルで検証すると再現しにくくなる障害がある。** kind は localhost にあり実測 max 20.9 ms なので、
+  タイムアウトを縮めても**リクエストが届く前に**切れる。要るのは「早く諦めること」ではなく「送った後に切ること」。
+- **ポリシーを独立に変更できるということは、独立に壊せるということでもある。**
+  `opa/data.json` の 1 行で本番 Pod の削除が `allow: true` になり、止めたのは RBAC だけだった。
+- **揃いすぎた結果は検証の失敗を示唆する。** 権限表の生成スクリプトが全件 `no` を返していた
+  （zsh は未クォートの変数を単語分割しない）。Phase 2 の「全部合格しているときほど疑う」の逆向き。
+- **自動修正ツールは規律を読まない。** `ruff --fix` が「改修しない」と定めた `mocks/fault_injector.py` を
+  書き換えていた。変更禁止のファイルを機械的な処理の範囲に入れない運用が要る。
+
 ### Phase 5 以降にも効く Phase 4 の知見
 
 - **押してみなければ出ない不備がある。** 単体テストが全件通った状態で、実機の押下により 4 件出た。
@@ -249,8 +298,11 @@ curl -s http://localhost:8181/health
 - **秘密情報は `.env` のみ。** API キー・Slack トークン・署名シークレットを
   `litellm/config.yaml` や `docker-compose.yml` に直書きしない（`os.environ/` 参照を使う）。
   `.env` と `.env.local` は gitignore 済み。
-- **PoC では実際の破壊的操作を実行しない。** `allow: true` になった場合も、
-  実行層はログ出力か `--dry-run` に留める。実クラスタへの `kubectl delete` は絶対に発行しない。
+- **破壊的操作を発行してよいのは、使い捨ての kind クラスタに対してだけ**（Phase 5 / [D-026](docs/decisions.md)）。
+  **実クラスタ・既存クラスタへの `kubectl delete` は絶対に発行しない。** 対象は
+  `kind create cluster` で作り `kind delete cluster` で丸ごと消せるものに限り、権限は
+  ServiceAccount の RBAC で絞る（クラスタ管理者権限では実行しない）。
+  Phase 1〜4 の実行層はログ出力のみ（`execute_dry_run()`）であり、この改訂は Phase 5 の実行層にだけ及ぶ。
 - **異常系は「壊して確かめる」のが本体。** API キーの無効化、壊れた JSON の注入、禁止コマンドの投入といった
   故意の failure injection がこのリポジトリの主要な作業であり、バグではない。
 - Slack の Interactivity 受信には外部から到達可能な URL が必要（ngrok 等）。ローカル URL では検証できない。

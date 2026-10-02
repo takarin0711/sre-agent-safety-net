@@ -1,0 +1,4 @@
+{"source": "k8s_proxy", "event": "start", "mode": "drop_response", "upstream": "https://127.0.0.1:64940", "port": 8081}
+{"source": "k8s_proxy", "mode": "drop_response", "method": "PATCH", "path": "/apis/apps/v1/namespaces/prod/deployments/payment-api", "forwarded": true}
+{"source": "k8s_proxy", "mode": "drop_response", "upstream_status": 200, "path": "/apis/apps/v1/namespaces/prod/deployments/payment-api"}
+{"source": "k8s_proxy", "mode": "drop_response", "note": "上流は応答したが、クライアントには返さない", "upstream_status": 200}

@@ -1,0 +1,3 @@
+{"event": "handoff.received", "layer": "escalation_slack", "trace_id": "27bcc050-cdbb-46db-83e5-4d382eed91bc", "actor": "U-APPROVER", "action_id": "approve_action", "slack_retry_num": null}
+{"event": "handoff.approved", "layer": "escalation_slack", "trace_id": "27bcc050-cdbb-46db-83e5-4d382eed91bc", "actor": "U-APPROVER", "override_kind": "policy_override"}
+{"pressed": "approve", "as": "U-APPROVER", "http": 200, "status_after": "approved", "retry_count": 0, "kubeconfig_in_receiver": false}

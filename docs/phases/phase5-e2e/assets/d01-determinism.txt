@@ -1,0 +1,8 @@
+# D-01 決定性（phase5 design.md 4.6）
+
+実行層の組み立て  : 10 回の SHA-256 が 1 種類 -> 一致
+  digest = 5f567f7b3ac7b852dea7c7887f392b8782e2952404c1be38d16296293b3760ad
+パターン5 (execution_failed ) : 10 回の SHA-256 が 1 種類 -> 一致
+  digest = 518b570d650a4ab696046fffa6680b89a8600deafd6c9ae6606b19464b381421
+パターン5 (execution_unknown) : 10 回の SHA-256 が 1 種類 -> 一致
+  digest = 546297ed446937b46b62a5df40d3d5736ddfbbc23e8db9ad948bf17ac8f49d7e

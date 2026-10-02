@@ -29,9 +29,11 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
        │  破壊的操作を allow: false として確定的に拒否          │
        └──────────────────────────┬───────────────────────────┘
                                   │ allow: true
-                          ┌───────▼────────┐
-                          │  インフラ実行   │
-                          └────────────────┘
+                          ┌───────▼─────────────────┐
+                          │  実行層 (agents/k8s.py)  │
+                          │  kind クラスタへ実発行    │
+                          │  RBAC が最後の 1 枚      │
+                          └─────────────────────────┘
 
   いずれかの層で異常 ──▶ エスカレーション層: Slack Handoff (slack/)
                           Block Kit で人間に提示し、承認 / 却下 を待つ
@@ -43,6 +45,11 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 | 第2層 (JSON Validator) | LLM 出力の構造保証 | Pydantic v2 | `ValidationError` → 例外ハンドラ → Slack へハンドオフ |
 | 第3層 | 実行可否の決定的判定 | OPA / Rego | `allow: false` + 拒否理由 → Slack へ承認依頼 |
 | エスカレーション | Human-in-the-loop | Slack Bolt (Block Kit) | 人間の承認で再開、却下で中断 |
+| 実行層 | 承認済みアクションの発行 | Kubernetes API クライアント | 成功 / **確定的な失敗** / **実行有無が不明** の 3 分類（[D-028](docs/decisions.md)） |
+
+**実行は受信と分離している**（[D-027](docs/decisions.md)）。Slack の受信プロセス（`slack/handler.py`）は
+ステートを `approved` にするところまでで終わり、クラスタの資格情報を持たない。
+実行は `agents/executor.py` が行う。「承認ボタンを押せる = 受信プロセスの権限で実行できる」という結合を作らないため。
 
 ---
 
@@ -65,9 +72,15 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 │   ├── policy.rego
 │   └── policy_test.rego      # Rego 単体テスト
 ├── slack/                    # エスカレーション層: Slack コールバック処理
-│   └── handler.py
+│   ├── handler.py            #   受信。**実行層を import しない** (D-027)
+│   └── store.py              #   承認ステートストア (SQLite)
+├── k8s/                      # 検証用クラスタ (Phase 5)。使い捨ての kind 専用
+│   ├── setup.sh              #   作成・再作成。kind delete cluster で消せることが前提
+│   ├── workloads.yaml        #   prod / staging / dev のワークロード
+│   └── rbac.yaml             #   **最小権限。第3層が許可しても止める最後の 1 枚**
 ├── mocks/                    # 検証用の障害注入サーバ
-│   └── fault_injector.py
+│   ├── fault_injector.py     #   第1層・第2層 (429 / 500 / timeout / malformed)
+│   └── k8s_proxy.py          #   実行層 (5xx / 応答の握り潰し / 無応答)
 ├── tests/                    # pytest (第2層の単体検証)
 │   ├── fixtures/             #   正常系 & 壊れた LLM 出力のケース集
 │   └── test_layer2_validation.py
@@ -89,7 +102,7 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 | Phase 2 | 第2層 (JSON Validator) | 正常な JSON フォーマットが型検証を通過する | 自然言語混入、クォート閉じ漏れ、必須フィールド欠落 JSON を入力する | `ValidationError` を確定検知し、即座に例外ハンドラへハンドオフされる | **完了（合格）**（[設計](docs/phases/phase2-pydantic/design.md) / [結果](docs/phases/phase2-pydantic/result.md)） |
 | Phase 3 | 第3層 (OPA) | 参照系コマンド（`kubectl get` 等）が `allow: true` になる | 破壊的操作（`kubectl delete` 等）を指示した JSON を入力する | OPA で `allow: false` と判定され、実行権限が確定的に拒否される | **完了（合格）**（[設計](docs/phases/phase3-opa/design.md) / [結果](docs/phases/phase3-opa/result.md)） |
 | Phase 4 | エスカレーション機構 (Slack Handoff 単体) | ダミーのエラー JSON を送信し、Slack 上に Block Kit UI が正しく表示される | Slack 上で「手動で承認して実行」や「却下」ボタンを実際に押下する | ボタン押下時のイベント（Interactivity payload）をアプリ側で正しく受信・パースできる | **完了（合格）**（[設計](docs/phases/phase4-slack/design.md) / [結果](docs/phases/phase4-slack/result.md)） |
-| Phase 5 | E2E (全体統合テスト) | タスクが AI の自律判断から実行まで全自動で完了する | Phase 1〜3 の各層で意図的に異常系イベントを発生させる | 各層に応じた Slack 通知が届き、人間がボタンを押すことで処理が安全に再開・中断される | 未着手 |
+| Phase 5 | E2E (全体統合テスト) | タスクが AI の自律判断から実行まで全自動で完了する | Phase 1〜3 の各層で意図的に異常系イベントを発生させる | 各層に応じた Slack 通知が届き、人間がボタンを押すことで処理が安全に再開・中断される | **完了（合格）**（[設計](docs/phases/phase5-e2e/design.md) / [結果](docs/phases/phase5-e2e/result.md)） |
 
 各フェーズは着手前に `docs/phases/phaseN-*/design.md` で設計を確定させ、実行後に `result.md` へ結果を記録する。
 
@@ -192,9 +205,45 @@ LITELLM_CONFIG_FILE=config.fault.yaml FAULT_MODE=malformed FAULT_FIXTURE=v01_pro
   docker compose up -d
 ```
 
-### Phase 3〜5
+### Phase 3 (OPA) / Phase 4 (Slack)
 
-（未着手）
+**いずれも完了（合格）**。[Phase 3 結果](docs/phases/phase3-opa/result.md) /
+[Phase 4 結果](docs/phases/phase4-slack/result.md)。
+
+### Phase 5: E2E と実行層の実体化
+
+**完了（2026-10-01・合格）**。判定基準 1〜12 すべて合格（[result.md](docs/phases/phase5-e2e/result.md)）。
+
+実行層が本物になる。対象は**使い捨ての kind クラスタのみ**で、実クラスタには発行しない（[D-026](docs/decisions.md)）。
+
+```bash
+# 1. 検証用クラスタ（作成・再作成。--recreate で作り直す）
+./k8s/setup.sh
+kubectl auth can-i delete pvc -n prod --kubeconfig var/kubeconfig-sre-agent.yaml   # -> no
+
+# 2. 自律経路（第3層が allow なら実クラスタへ発行する）
+python -m agents.main --incident "dev の payment-api が CrashLoopBackOff"
+
+# 3. 承認経路。受信と実行は別プロセス（D-027）
+python -m slack.handler      # 受信。**kubeconfig を渡さない**
+python -m agents.executor    # 実行。唯一 K8S_KUBECONFIG を持つ
+python -m agents.executor --once   # 1 周だけ（検証用）
+
+# 4. 実行層の異常系（agents/ も slack/ も変更しない）
+./k8s/make-fault-kubeconfig.sh
+K8S_PROXY_MODE=drop_response K8S_PROXY_UPSTREAM=$(cat var/kind-upstream.txt) \
+  K8S_PROXY_CA=var/kind-ca.pem python mocks/k8s_proxy.py
+# → 上流では実行されるが応答が返らない ＝「実行されたのに unknown」
+
+# 5. 後片付け
+kind delete cluster --name sre-safety-net
+```
+
+終了コードに **6**（実行を試みて確定的に失敗）と **7**（実行の有無が不明）が加わる。**7 が最重**。
+
+> **`unknown` に再試行ボタンを出さない。** 評価できていない操作に承認ボタンを出さないのと
+> まったく同じ規律である（[D-028](docs/decisions.md)）。実行されたか分からないものを
+> 再試行すると、非冪等な破壊的操作で二重実行になる。
 
 ---
 
