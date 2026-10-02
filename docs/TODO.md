@@ -1,6 +1,6 @@
 # TODO / 現在地
 
-最終更新: 2026-10-01
+最終更新: 2026-10-02
 
 ## 現在地
 
@@ -31,6 +31,11 @@
 **Phase 5 は完了（2026-10-01）。** 全シナリオを実施し総合判定は合格。
 結果・考察・提言は [phases/phase5-e2e/result.md](phases/phase5-e2e/result.md)。
 実装中・実行中に出た設計判断は [D-026〜D-030](decisions.md)。
+
+**通しを実機で再現し、配線スクリプトを整備（2026-10-02）。**
+Phase 5 の通しを `--once` ではなく**常駐モードで 1 本通した**（trace `a9d5311a`）。
+手順を [../scripts/e2e.sh](../scripts/e2e.sh) にまとめ、[../scripts/README.md](../scripts/README.md) を書いた。
+ハーネス側で踏んだ失敗は [lessons.md](lessons.md) に追加。
 
 **PoC のロードマップ（Phase 1〜5）はこれで全て完了した。**
 
@@ -651,12 +656,65 @@ T-05 / T-06 / T-07 / G-01 / G-05 / G-06 は `handler.approve()` 1 本から
 ### 積み残し（Phase 5 としては完了扱い）
 
 - [ ] executor を**別プロセスとして複数**同時起動する検証（W-01 はスレッドで確認）
-- [ ] 常駐モードのポーリング遅延の体感評価（検証はすべて `--once` で駆動した）
+- [x] 常駐モードのポーリング遅延の体感評価 → **2026-10-02 に解消。** 承認 07:43:31.59 →
+      実行 07:43:32.00 で、`EXECUTOR_POLL_SECONDS=2.0` に対し体感遅延は 2 秒以内。
+      待たされている感覚は無かった
 - [ ] `retry_count` 上限到達後の通知文面（ボタンは消えるが、上限到達を文面で明示していない）
 - [ ] 実クラスタ（ネットワーク越し）でのレイテンシと `unknown` 発生率
 - [ ] `kubectl_describe` の代替実装は Event を数えるだけで、人間が読む情報になっていない
 - [ ] node（クラスタスコープ）に `namespace` が申告される非対称の整理
 - [ ] 監査ログの外部保全・ポリシー bundle の署名検証（Phase 3・4 からの継続）
+
+---
+
+## 通しの実機再現とハーネス整備（2026-10-02）
+
+Phase 5 の判定は [phases/phase5-e2e/result.md](phases/phase5-e2e/result.md) が正で、**ここはそれを
+変えるものではない**。やったのは「もう一度同じことを人の手で通せるか」の確認と、その配線の整備。
+
+### 通した 1 本
+
+trace `a9d5311a-c46e-40d2-b3d8-482c4b4f6686`
+
+| 層 | 結果 |
+| --- | --- |
+| 第1層 | `primary-jp`（`jp.anthropic.claude-sonnet-4-6`）。retries 0 / fallbacks 0 |
+| 第2層 | `validation.ok`。LLM は自分で `dry_run: false` を選んだ |
+| 第3層 | `policy.deny` — `REQUIRE_DRY_RUN_IN_PRODUCTION` |
+| エスカレーション | `slack.notified` → 63 秒後に承認（`policy_override`） |
+| 実行層 | `execution.applied` → `executor.executed`。`rollout restart deployment prod/payment-api generation=3` |
+
+クラスタ側の裏取り: `restartedAt` が `2026-10-01T10:06:28` → `2026-10-02T07:43:31.970792+00:00`、
+ReplicaSet が `7f95dcf454`(2/2) → `77cc5c5fb6`(2/2)、旧 RS は 0 にスケールダウン。
+
+**プロンプトには「危険な操作を避けよ」を一切書いていない。** 止めたのは確率的な部品ではなく
+第3層であり、それを人間が通した事実は `policy_override` として監査に 2 行残っている。
+
+### 整備したもの
+
+- `scripts/e2e.sh` — 前提確認（`check`）・常駐 3 本の起動（`up`）・インシデント投入と承認待ち（`run`）・
+  事後検証（`verify`）・停止（`down`）
+- `scripts/README.md` — アーキテクチャ図、端末と層の対応、手順、出力の読み方、成立の条件、つまずきどころ
+- `architecture.md` を Phase 5 の実態に合わせた（実行層が dry-run のままだった）
+- `commands.md` の疎通確認を `/health/liveliness` に修正（`/health` はマスターキーが要る）
+
+**層は 1 つも代行していない。** 承認ボタンの押下と各層の判定は自動化の対象外（[../scripts/README.md](../scripts/README.md)）。
+
+### ハーネス側で踏んだ失敗（lessons.md に追加済み）
+
+- **ERR トラップが `PIPESTATUS` を上書きし、第3層の `deny`(3) を「通過」(0) と報告した。**
+  層は正しく止めていて、嘘をついたのは観測側だった。**層の出力を加工して受け取る場所は、
+  それ自体が検証対象になる**
+- `set -e` + `pipefail` の下で空振りした `grep` がスクリプトを無言で殺した
+- 承認待ちを無音にしていたため、待っているのか固まっているのか区別できなかった
+- 実行直後のスナップショットが Rolling Update の途中を写した
+
+### ここから出た積み残し
+
+- [ ] `scripts/e2e.sh` の `up` / `run` に自動テストが無い（`check` / `status` / `verify` は実行で確認済み）
+- [ ] 異常系（`execution_failed` / `unknown` / `stale`）を `e2e.sh` から再現する導線が無い。
+      いまは [commands.md](commands.md) の障害注入を手で併用する必要がある
+- [ ] トンネルの URL が変わるたびに Slack App の Request URL を手で張り替えている
 
 ---
 
