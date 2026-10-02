@@ -124,6 +124,20 @@ handler の検証経路（署名・RBAC・CAS・再検証・実行層）はそ�
 
 ---
 
+## 通し（E2E）
+
+```bash
+./scripts/e2e.sh check            # 前提確認だけ
+./scripts/e2e.sh up               # 常駐 3 本（tunnel / handler / executor）の起動
+./scripts/e2e.sh run ["文"]       # インシデントを 1 本流して承認待ちを作る
+./scripts/e2e.sh verify [trace]   # 実行前後の比較と層ごとの判定をやり直す
+./scripts/e2e.sh down             # 常駐 3 本を停止
+```
+
+**ボタン押下と各層の判定は自動化していない。** 詳細は [../scripts/README.md](../scripts/README.md)。
+
+---
+
 ## 実行層（Phase 5）
 
 **使い捨ての kind クラスタ専用**（[D-026](decisions.md)）。実クラスタ・既存クラスタには発行しない。
@@ -163,10 +177,20 @@ docker run --rm -v "$PWD/opa:/policies:ro" openpolicyagent/opa:1.21.0 test /poli
 ## 疎通
 
 ```bash
-curl -s http://localhost:4000/health
+curl -s http://localhost:4000/health/liveliness     # 認証不要
 curl -s http://localhost:8181/health
 ```
 
-**プロセスの死活確認のみ。推論が通る保証にはならない。**
+**`/health` にはマスターキーが要る**（無認証だと 401）。死活確認だけなら `/health/liveliness` を使う。
+
+```bash
+curl -s -H "Authorization: Bearer $LITELLM_MASTER_KEY" http://localhost:4000/health
+```
+
+**いずれもプロセスの死活確認のみ。推論が通る保証にはならない。**
 LiteLLM は推論が全滅していても `unhealthy_count: 0` を返す（[lessons.md](lessons.md#層が自己申告する値を信じない)）。
 各層の健全性は実リクエストの成否で測る。
+
+```bash
+python -m agents.main --prompt "ping"    # 第1層が実際に通ることの確認はこちら
+```
