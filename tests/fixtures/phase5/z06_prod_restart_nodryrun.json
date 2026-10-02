@@ -1,0 +1,1 @@
+{"action_id": "act-z06", "environment": "production", "operation": "kubectl_rollout_restart", "target": {"kind": "deployment", "name": "payment-api", "namespace": "prod"}, "reason": "本番の payment-api が応答しなくなっているため Deployment を再起動したい", "dry_run": false}

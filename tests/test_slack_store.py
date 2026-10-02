@@ -13,12 +13,13 @@ from pathlib import Path
 
 import pytest
 
+from agents import executor
 from agents.policy import build_denied_event
 from agents.schemas import PolicyDecision, ViolatedRule
 from agents.validation import validate_action
 from slack import handler
 from slack.store import HandoffStatus, StateConflict, Store, is_stale
-from tests.fakes import FakeSlack
+from tests.fakes import FakeApis, FakeSlack
 
 FIXTURES = Path(__file__).parent / "fixtures"
 TRACE = "trace-store-1"
@@ -43,6 +44,21 @@ def denied_event_json(trace_id: str = TRACE) -> str:
         decision, action=action, trace_id=trace_id, original_request="本番が落ちた"
     )
     return event.model_dump_json()
+
+
+def approve_and_execute(store: Store, client: FakeSlack, *, apis: FakeApis | None = None, trace_id: str = TRACE):
+    """承認 → 実行の通し。
+
+    **Phase 5 で承認と実行は別プロセスになった**（D-027）。Phase 4 の T-05〜T-07 が
+    確かめていたのは「押した内容と実行内容が一致すること」「壊れたレコードが実行層に
+    到達しないこと」であり、それはプロセスの分け方ではなく**システムの性質**である。
+    したがって検証はこの通しで行い、分離してもその性質が保たれていることを見る。
+    """
+    outcome = handler.approve(
+        trace_id, actor="U-1", channel="C-TEST", message_ts="1.0", client=client, store=store
+    )
+    code = executor.run_once(store=store, apis=apis or FakeApis(), client=client)
+    return outcome, code
 
 
 def seed(store: Store, *, trace_id: str = TRACE, ttl: int = 900) -> None:
@@ -117,12 +133,13 @@ def test_t03_unexpired_entry_is_not_swept(store):
 def test_t04_executed_entry_is_never_executed_again(store):
     seed(store)
     store.approve(TRACE, actor="U-1")
-    store.mark_executed(TRACE, "dry_run")
+    store.claim_for_execution(TRACE)
+    store.mark_executed(TRACE, "applied")
     executed_at = store.get(TRACE).executed_at
     assert executed_at is not None
 
     with pytest.raises(StateConflict):
-        store.mark_executed(TRACE, "dry_run")
+        store.mark_executed(TRACE, "applied")
     assert store.get(TRACE).executed_at == executed_at
 
 
@@ -148,12 +165,13 @@ def test_t05_stale_approval_is_not_executed(store, monkeypatch):
     monkeypatch.setenv("SLACK_TOCTOU_SECONDS", "0")
     seed(store)
     client = FakeSlack()
-    outcome = handler.approve(
-        TRACE, actor="U-1", channel="C-TEST", message_ts="1.0", client=client, store=store
-    )
-    assert outcome.result == "stale"
+    apis = FakeApis()
+    approve_and_execute(store, client, apis=apis)
     assert store.get(TRACE).status == HandoffStatus.STALE
     assert store.get(TRACE).executed_at is None
+    # **API を 1 度も呼んでいない**。Phase 4 は「実行層のログが無い」ことで見ていたが、
+    # 実行が本物になった Phase 5 では「クラスタに触っていない」ことで見る。
+    assert apis.calls == []
     assert "実行中止" in client.last("chat_update")["text"]
 
 
@@ -164,12 +182,14 @@ def test_t06_action_is_restored_from_the_store(store):
     """実行内容はストアから引く。ペイロードの値からは再構成しない（運用原則2）。"""
     seed(store)
     client = FakeSlack()
-    outcome = handler.approve(
-        TRACE, actor="U-1", channel="C-TEST", message_ts="1.0", client=client, store=store
-    )
-    assert outcome.result == "executed"
+    apis = FakeApis()
+    outcome, _ = approve_and_execute(store, client, apis=apis)
+    assert outcome.result == "approved"
     row = store.get(TRACE)
     assert row.status == HandoffStatus.EXECUTED
+    # 実行されたのはストアのレコードが示す対象そのもの（ペイロードには Trace ID しか無い）
+    assert apis.last()[0] == "delete_namespaced_persistent_volume_claim"
+    assert apis.last()[1] == ("payment-db-data", "prod")
     # 実行対象はストアのレコードそのもの
     assert json.loads(row.event_json)["action"]["operation"] == "kubectl_delete_pvc"
     # policy_override が監査に残る（OPA の Decision Log には残らない）
@@ -189,12 +209,14 @@ def test_t07_corrupted_record_never_reaches_the_execution_layer(store):
     store._update(TRACE, "SET event_json = ?", (json.dumps(broken),))
 
     client = FakeSlack()
-    outcome = handler.approve(
-        TRACE, actor="U-1", channel="C-TEST", message_ts="1.0", client=client, store=store
-    )
-    assert outcome.result == "restore_failed"
+    apis = FakeApis()
+    approve_and_execute(store, client, apis=apis)
     assert store.get(TRACE).status == HandoffStatus.EXECUTION_FAILED
-    assert store.get(TRACE).executed_at is not None  # 実行を試みた事実は残す
+    # **API を 1 度も呼んでいない。** 復元に失敗した時点で止まっている（D-020）。
+    assert apis.calls == []
+    # executed_at は立たない。実行していないため（phase4 考察11 の解消）。
+    assert store.get(TRACE).executed_at is None
+    assert store.get(TRACE).execution_started_at is not None  # 試行の開始だけは残す
     assert any(e["action"] == "restore_failed" for e in store.audit_entries(TRACE))
 
 

@@ -12,8 +12,13 @@
 - **復元したレコードを strict に再検証してから実行層に渡す**（D-020）。
   ストアはこの PoC で初めて登場する可変の永続状態であり、無検証で信じない。
 - **排他はストアの条件付き更新に任せる**（D-024）。二重押下も Slack の再送も同じ経路で弾く。
+- **実行しない**（Phase 5 / D-027）。承認はステートを ``approved`` にするところまでで終え、
+  実際の実行は ``agents/executor.py`` が行う。このプロセスは**クラスタの資格情報を持たない**。
+  ``agents.execution`` / ``agents.k8s`` を import しないことを pytest で検査している（K-07）。
+  「承認ボタンを押せる = handler の権限で実行できる」という結合を作らないための分離である。
 - **``policy_override`` を監査に残す。** OPA の Decision Log には残らないため、
-  ここで記録しなければどこにも残らない（phase3 result.md 提言7）。
+  どこかで記録しなければどこにも残らない（phase3 result.md 提言7）。
+  実行の事実を残すのは executor 側だが、**承認の事実はここで残す**。
 """
 
 from __future__ import annotations
@@ -21,30 +26,34 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from pydantic_core import ValidationError
 from slack_bolt import App
 from slack_bolt.middleware import RequestVerification
 from slack_bolt.response import BoltResponse
 from slack_sdk import WebClient
 
-from agents.execution import execute_dry_run
-from agents.log import json_safe_errors, log
-from agents.schemas import EscalationEvent
+from agents.log import log
 from slack import notifier
-from slack.blocks import ACTION_ID_APPROVE, ACTION_ID_REJECT, build_resolved_blocks
-from slack.store import HandoffStatus, StateConflict, Store, is_stale
+from slack.blocks import (
+    ACTION_ID_ABANDON,
+    ACTION_ID_APPROVE,
+    ACTION_ID_REJECT,
+    ACTION_ID_RETRY,
+    build_resolved_blocks,
+)
+from slack.store import HandoffStatus, StateConflict, Store
 
 LAYER = "escalation_slack"
 
 # 承認系とみなす action_id。RBAC はここだけを対象にする。
-PRIVILEGED_ACTIONS = (ACTION_ID_APPROVE,)
+# **再試行も承認系である**（もう一度実行させる操作であり、危険度は初回と同じ）。
+PRIVILEGED_ACTIONS = (ACTION_ID_APPROVE, ACTION_ID_RETRY)
 
 
 @dataclass(frozen=True)
 class Outcome:
     """1 回の押下の結果。テストから直接検証できるよう戻り値にする。"""
 
-    result: str  # executed / rejected / conflict / stale / restore_failed / unauthorized
+    result: str  # approved / rejected / retrying / abandoned / conflict / unauthorized
     detail: str = ""
 
 
@@ -74,63 +83,102 @@ def approve(
     client: WebClient | None = None,
     store: Store | None = None,
 ) -> Outcome:
-    """承認して実行する。Bolt から切り離して呼べるようにしてある（テスト用）。"""
+    """承認する。**実行はしない**（D-027）。実行は agents/executor.py が拾う。
+
+    Phase 4 はここで実行層まで呼んでいた。実行が実 API 呼び出しになった時点で
+    その前提（3 秒ルールに対して桁が 5 つ違う）が崩れる、と D-024 自身が書いていた。
+    """
     store = store or Store()
 
     try:
         # ここが排他の実体。二重押下も Slack の再送も、更新件数 1 でなければ弾かれる。
-        row = store.approve(trace_id, actor=actor)
+        store.approve(trace_id, actor=actor)
     except StateConflict as exc:
         store.audit(trace_id, action="lock_conflict", actor=actor, detail=f"actual={exc.actual}")
         _log("handoff.conflict", trace_id=trace_id, actor=actor, actual=exc.actual)
         _ephemeral(channel, actor, "⚠️ この操作はすでに処理済み、却下済み、または期限切れです。", client)
         return Outcome("conflict", f"actual={exc.actual}")
 
-    # TOCTOU。**提案から**の経過時間で測る（design.md 3.5）。
-    if is_stale(row):
-        elapsed = (row.approved_at or row.created_at) - row.created_at
-        detail = f"提案から {elapsed.total_seconds():.0f} 秒が経過しているため実行しません"
-        store.mark_stale(trace_id, detail, actor=actor)
-        _log("handoff.stale", trace_id=trace_id, actor=actor, detail=detail)
-        _update(channel, message_ts, "⏱️ [実行中止] 提案から時間が経過しました", trace_id, detail, client)
-        return Outcome("stale", detail)
-
-    try:
-        # ストアも無検証で信じない。strict / extra="forbid" で再検証する（D-020）。
-        event = EscalationEvent.model_validate_json(row.event_json)
-        action = event.action
-        if action is None:
-            raise ValueError("承認対象のアクションがイベントに含まれていません")
-    except (ValidationError, ValueError) as exc:
-        detail = f"ストアから承認対象を復元できませんでした（{type(exc).__name__}）"
-        errors = json_safe_errors(exc) if isinstance(exc, ValidationError) else []
-        store.mark_execution_failed(trace_id, detail)
-        store.audit(trace_id, action="restore_failed", actor=actor, detail=str(exc))
-        _log("handoff.restore_failed", trace_id=trace_id, actor=actor, detail=detail, errors=errors)
-        _update(channel, message_ts, "❌ [実行中止] 承認対象を復元できませんでした", trace_id, detail, client)
-        return Outcome("restore_failed", detail)
-
-    # 実行層。allow: true の経路とまったく同じ関数を通す（design.md 3.1）。
-    execute_dry_run(action, trace_id)
-    store.mark_executed(trace_id, "dry_run")
-    # 人間がポリシーの判断を上書きした事実。ここで記録しなければどこにも残らない（D-023）。
-    store.audit(
-        trace_id,
-        action="execute",
-        actor=actor,
-        override_kind="policy_override",
-        detail=f"violated_rules={[v.rule for v in event.violated_rules]}",
-    )
-    _log("handoff.executed", trace_id=trace_id, actor=actor, override_kind="policy_override")
+    # 人間がポリシーの判断を上書きした事実。OPA の Decision Log には残らない（D-023）。
+    store.audit(trace_id, action="approve", actor=actor, override_kind="policy_override")
+    _log("handoff.approved", trace_id=trace_id, actor=actor, override_kind="policy_override")
+    # 宛先をストアに残しておく（executor が結果でこのメッセージを書き換える）。
+    store.attach_message(trace_id, channel=channel, message_ts=message_ts)
     _update(
         channel,
         message_ts,
-        f"✅ *[承認済み・実行完了]*\n*承認者:* <@{actor}>",
+        f"⏳ *[承認済み・実行待ち]*\n*承認者:* <@{actor}>",
         trace_id,
-        "ポリシー違反を人間が承認して実行しました（policy_override として監査に記録）",
+        "実行プロセスが順に処理します。結果はこのメッセージを書き換えて通知します",
         client,
     )
-    return Outcome("executed")
+    return Outcome("approved")
+
+
+def retry(
+    trace_id: str,
+    *,
+    actor: str,
+    channel: str,
+    message_ts: str,
+    client: WebClient | None = None,
+    store: Store | None = None,
+) -> Outcome:
+    """実行に失敗したものをもう一度実行待ちに戻す（通知パターン5 の［再試行］）。
+
+    **実行内容は作り直さない。** 変わるのは ``status`` と ``retry_count`` だけであり、
+    実行対象は常にストアの ``event_json`` から復元される（運用原則4「再試行の同一性」）。
+    **``unknown`` はここに来ない**（再試行ボタンを出していないため。D-028）。
+    """
+    store = store or Store()
+    try:
+        row = store.retry(trace_id, actor=actor)
+    except StateConflict as exc:
+        store.audit(trace_id, action="lock_conflict", actor=actor, detail=f"actual={exc.actual}")
+        _log("handoff.conflict", trace_id=trace_id, actor=actor, actual=exc.actual)
+        _ephemeral(channel, actor, "⚠️ この操作は再試行できません（上限到達、処理済み、または実行有無が不明）。", client)
+        return Outcome("conflict", f"actual={exc.actual}")
+
+    _log("handoff.retrying", trace_id=trace_id, actor=actor, retry_count=row.retry_count)
+    store.attach_message(trace_id, channel=channel, message_ts=message_ts)
+    _update(
+        channel, message_ts,
+        f"🔁 *[再試行を受け付けました]*\n*実行者:* <@{actor}>",
+        trace_id, f"{row.retry_count} 回目の試行として実行待ちに戻しました", client,
+    )
+    return Outcome("retrying", f"retry_count={row.retry_count}")
+
+
+def abandon(
+    trace_id: str,
+    *,
+    actor: str,
+    channel: str,
+    message_ts: str,
+    client: WebClient | None = None,
+    store: Store | None = None,
+) -> Outcome:
+    """これ以上試さないと人間が決めた（通知パターン5 の［これ以上試さない］）。
+
+    ``rejected``（実行を試みていない状態での却下）とは**別のステート**にする。
+    実行を試みたかどうかは、監査上まったく別の事実である。
+    """
+    store = store or Store()
+    try:
+        store.abandon(trace_id, actor=actor)
+    except StateConflict as exc:
+        store.audit(trace_id, action="lock_conflict", actor=actor, detail=f"actual={exc.actual}")
+        _log("handoff.conflict", trace_id=trace_id, actor=actor, actual=exc.actual)
+        _ephemeral(channel, actor, "⚠️ この操作はすでに処理済みです。", client)
+        return Outcome("conflict", f"actual={exc.actual}")
+
+    _log("handoff.abandoned", trace_id=trace_id, actor=actor)
+    _update(
+        channel, message_ts,
+        f"🛑 *[中止]*\n*判断者:* <@{actor}>",
+        trace_id, "実行を試みたうえで、これ以上再試行しないと判断されました", client,
+    )
+    return Outcome("abandoned")
 
 
 def reject(
@@ -259,6 +307,30 @@ def build_app(
         ack()
         _log_retry(request, body)
         reject(
+            body["actions"][0]["value"],
+            actor=body["user"]["id"],
+            channel=body["channel"]["id"],
+            message_ts=body["message"]["ts"],
+            client=api_client,
+        )
+
+    @app.action(ACTION_ID_RETRY)
+    def on_retry(ack, body, request):  # type: ignore[no-untyped-def]
+        ack()
+        _log_retry(request, body)
+        retry(
+            body["actions"][0]["value"],
+            actor=body["user"]["id"],
+            channel=body["channel"]["id"],
+            message_ts=body["message"]["ts"],
+            client=api_client,
+        )
+
+    @app.action(ACTION_ID_ABANDON)
+    def on_abandon(ack, body, request):  # type: ignore[no-untyped-def]
+        ack()
+        _log_retry(request, body)
+        abandon(
             body["actions"][0]["value"],
             actor=body["user"]["id"],
             channel=body["channel"]["id"],

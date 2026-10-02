@@ -1,0 +1,1 @@
+{"action_id": "act-r02", "environment": "production", "operation": "kubectl_delete_pod", "target": {"kind": "pod", "name": "payment-worker", "namespace": "prod"}, "reason": "本番の payment-worker が応答しなくなっているため Pod を削除して再作成させたい", "dry_run": false}

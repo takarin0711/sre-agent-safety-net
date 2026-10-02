@@ -17,13 +17,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from agents.log import log
 from agents.schemas import EscalationEvent
 from slack import notifier
 from slack.blocks import build_notification
-from slack.store import Store, actionable_until
+from slack.store import HandoffStatus, PendingAction, Store, actionable_until, can_retry
 
 # --no-slack で落とす。Phase 3 までの経路をそのまま再現するためのフラグ。
 _enabled = True
@@ -75,9 +75,88 @@ def escalate(handoff: EscalationEvent, /, **log_fields: object) -> None:
     store, expires_at = pending if pending else (None, None)
     # 表示する期限は、ストアが判定に使う値そのもの（別々に計算しない）。
     notification = build_notification(handoff, expires_at=expires_at)
+    _deliver(handoff, notification, store)
+
+
+def escalate_execution_outcome(row: PendingAction, outcome, *, client=None) -> None:
+    """実行の結果（確定的な失敗 / 実行有無が不明）を人間に出す（通知パターン5）。
+
+    **エントリは既にある前提**で呼ぶ（executor も自律経路も、先にストアへ書いてから通知する）。
+    通知の kind は**ストアに保存された kind ではなく実行の結果**から決める。
+    保存されているのは「なぜ人間に渡したか」、ここで出すのは「実行がどうなったか」であり、別の事実である。
+    """
+    kind = "execution_failed" if outcome.status == "execution_failed" else "execution_unknown"
+    handoff = _execution_event(row, kind, outcome)
+    notification = build_notification(
+        handoff, retryable=can_retry(row) if kind == "execution_failed" else False,
+        retry_count=row.retry_count,
+    )
+    _deliver(handoff, notification, None, client=client)
+
+
+def escalate_autonomous_execution(
+    action, trace_id: str, original_request: str, outcome
+) -> None:
+    """**自律経路**（allow: true だったのに実行が失敗した）の通知パターン5。
+
+    承認経路と違い、ストアにエントリがまだ無い。**先に作ってから通知する**
+    （phase4 design.md 3.5 の「ストア → Slack」の順序は Phase 5 でも変えない）。
+    エントリを作るのは、人間が［再試行］［これ以上試さない］を押せるようにするためである
+    （ストアにエントリがあるのは**人間の操作を待つもの**だけ、という不変条件。design.md 3.7）。
+    """
+    status = (
+        HandoffStatus.EXECUTION_FAILED
+        if outcome.status == "execution_failed"
+        else HandoffStatus.UNKNOWN
+    )
+    kind = "execution_failed" if outcome.status == "execution_failed" else "execution_unknown"
+    stored = EscalationEvent(
+        layer="execution", kind=kind,  # type: ignore[arg-type]
+        trace_id=trace_id, reason=outcome.detail, action=action,
+        http_status=outcome.http_status, original_request=original_request,
+        occurred_at=datetime.now(UTC),
+    )
+    if not _enabled or not notifier.is_configured():
+        log(event="slack.skipped", layer="execution", trace_id=trace_id,
+            reason="--no-slack" if not _enabled else "SLACK_BOT_TOKEN / SLACK_CHANNEL_ID が未設定")
+        return
+    row = Store().create_entry(
+        trace_id=trace_id, kind=stored.kind, event_json=stored.model_dump_json(), status=status
+    )
+    escalate_execution_outcome(row, outcome)
+
+
+def _execution_event(row: PendingAction, kind: str, outcome) -> EscalationEvent:
+    """パターン5 のイベントを組み立てる。**壊れたレコードでも通知できる形にする。**
+
+    復元に失敗したこと自体が通知すべき事象なので、ここで ValidationError を投げると
+    「失敗したのに誰も知らない」という本 PoC がもっとも避けたい状態になる（D-022）。
+    """
+    action = None
+    original = "(ストアから復元できませんでした)"
+    try:
+        stored = EscalationEvent.model_validate_json(row.event_json)
+        action = stored.action
+        original = stored.original_request
+    except Exception:  # noqa: BLE001 - 壊れていても通知は出す
+        log(event="escalation.restore_failed", trace_id=row.trace_id, kind=kind)
+    return EscalationEvent(
+        layer="execution",
+        kind=kind,  # type: ignore[arg-type]
+        trace_id=row.trace_id,
+        reason=outcome.detail,
+        action=action,
+        http_status=outcome.http_status,
+        original_request=original,
+        occurred_at=datetime.now(UTC),
+    )
+
+
+def _deliver(handoff: EscalationEvent, notification, store: Store | None, *, client=None) -> None:
+    """組み立てた通知を送り、結果をログとストアに残す。送出の経路はここ 1 本だけ。"""
 
     try:
-        delivery = notifier.post(notification)
+        delivery = notifier.post(notification, client=client)
     except notifier.NotificationError as exc:
         # 遮断は成立している。失敗しているのは「人間に届けること」だけである。
         _failed_deliveries.add(handoff.trace_id)

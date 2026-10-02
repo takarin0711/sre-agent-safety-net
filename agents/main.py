@@ -21,6 +21,8 @@ LiteLLM Proxy 側の関心事とする。フェイルオーバーの有無によ
     3  第3層が allow: false（Handoff 仕様書の通知パターン3）
     4  第3層が評価不能・Fail-Closed（同 パターン4）
     5  エスカレーションの送出に失敗した（遮断は成立しているが人間に届いていない）
+    6  実行を試みて確定的に失敗した（4xx。実行されていないことが分かっている）
+    7  実行の有無が不明（5xx / 応答なし）。**もっとも重い**
 """
 
 from __future__ import annotations
@@ -36,7 +38,7 @@ from openai import OpenAI
 from pydantic_core import ValidationError
 
 from agents import escalation
-from agents.execution import execute_dry_run
+from agents.execution import execute
 from agents.log import log
 from agents.policy import PolicyUnavailableError, evaluate_action
 from agents.prompts import build_incident_messages
@@ -55,6 +57,10 @@ EXIT_POLICY_UNAVAILABLE = 4
 # 遮断そのものは成立しているが、人間に届いていない（docs/decisions.md D-022）。
 # 多層防御でもっとも危険な失敗は「止めたことを誰も知らない」ことなので、3 / 4 と区別する。
 EXIT_ESCALATION_FAILED = 5
+# 実行を試みた後の失敗。3〜5 は「実行していない」ことが確定している状態なので、それより重い。
+# 7 を最重とするのは、**唯一「いまの状態が分からない」状態だから**である（D-028）。
+EXIT_EXECUTION_FAILED = 6
+EXIT_EXECUTION_UNKNOWN = 7
 
 
 def litellm_headers(headers: object) -> dict[str, str]:
@@ -143,7 +149,9 @@ def call_incident_once(
     code = _run_layers(client, incident, attempt, trace_id, skip_policy=skip_policy)
     if escalation.delivery_failed(trace_id):
         # 遮断の成立（3 / 4）と「人間に届いていない」を区別する（D-022）。
-        return EXIT_ESCALATION_FAILED
+        # 実行まで到達して不明に倒れた場合（7）は、届かなかったことより重い状態なので
+        # 大きいほうを返す（「大きいほど重い」の規律を保つ）。
+        return max(code, EXIT_ESCALATION_FAILED)
     return code
 
 
@@ -182,8 +190,17 @@ def _run_layers(
         # 承認は待たない。イベントを出して終了する（Handoff 仕様書「App は待機せず解放」）。
         return EXIT_POLICY_DENIED
 
-    execute_dry_run(action, trace_id)
-    return EXIT_OK
+    # 実行層。Phase 5 から**実際に Kubernetes API を発行する**（対象は kind のみ。D-026）。
+    outcome = execute(action, trace_id)
+    if outcome.executed:
+        return EXIT_OK
+    # 止めたのではなく、通したうえで失敗した。人間に渡す形が層の失敗とは違う（通知パターン5）。
+    escalation.escalate_autonomous_execution(action, trace_id, incident, outcome)
+    return (
+        EXIT_EXECUTION_FAILED
+        if outcome.status == "execution_failed"
+        else EXIT_EXECUTION_UNKNOWN
+    )
 
 
 def main() -> int:
@@ -231,7 +248,7 @@ def main() -> int:
 
     failures = sum(1 for code in codes if code != EXIT_OK)
     log(event="run.finished", total=args.repeat, failures=failures)
-    # --repeat では最も重い結果を返す（4 > 3 > 1 > 0）。
+    # --repeat では最も重い結果を返す（7 > 6 > 5 > 4 > 3 > 1 > 0）。
     return max(codes, default=EXIT_OK)
 
 

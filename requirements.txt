@@ -6,3 +6,7 @@ python-dotenv>=1.0
 
 # エスカレーション層 (Phase 4 以降)
 slack-bolt>=1.18
+
+# 実行層 (Phase 5)。kubectl のサブプロセスにしないのは、失敗の分類を
+# 文字列解析に依存させないため (D-030)。HTTP ステータスがそのまま取れる
+kubernetes>=31

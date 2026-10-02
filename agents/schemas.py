@@ -176,12 +176,24 @@ class EscalationEvent(BaseModel):
     - ``validation_failed``   第2層の ValidationError            → 通知パターン2
     - ``policy_denied``       第3層が allow: false（理由つき）   → 通知パターン3（承認ボタンあり）
     - ``policy_unavailable``  第3層が評価不能（Fail-Closed）     → 通知パターン4（ボタンなし）
+    - ``execution_failed``    実行層が確定的に失敗（4xx 等）     → 通知パターン5（再試行ボタンあり）
+    - ``execution_unknown``   **実行の有無が不明**（5xx / 無応答）→ 通知パターン5（**ボタンなし**）
+
+    最後の 2 つは Phase 5 で追加した（phase5 design.md 3.9 / D-028）。
+    **1 つの kind にまとめない。** 「実行されていない」と「分からない」は、
+    人間が次に取る行動が違う（前者は再試行、後者はクラスタの確認）。
     """
 
     model_config = LAYER2_MODEL_CONFIG
 
-    layer: Literal["layer1_litellm", "layer2_json_validator", "layer3_opa"]
-    kind: Literal["validation_failed", "policy_denied", "policy_unavailable"]
+    layer: Literal["layer1_litellm", "layer2_json_validator", "layer3_opa", "execution"]
+    kind: Literal[
+        "validation_failed",
+        "policy_denied",
+        "policy_unavailable",
+        "execution_failed",
+        "execution_unknown",
+    ]
     # 全層・OPA の Decision Log・Phase 4 のステートストアを貫く相関 ID（D-016）。
     # Slack のボタン value に入るのもこの値だけである（Handoff 仕様書 運用原則2）。
     trace_id: str
@@ -192,5 +204,7 @@ class EscalationEvent(BaseModel):
     action: ProposedAction | None = None
     violated_rules: list[ViolatedRule] = Field(default_factory=list)
     raw_output: str | None = None  # LLM の生出力（何が来たのかを人間が見る）
+    # 実行層の失敗でのみ使う（パターン5）。HTTP ステータスは「実行されたか」の分類根拠そのもの。
+    http_status: int | None = None
     original_request: str  # 元のインシデント記述
     occurred_at: datetime

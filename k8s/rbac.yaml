@@ -1,0 +1,137 @@
+# エージェントの実行権限（phase5 design.md 3.10 / 判定基準5）。
+#
+#   kubectl apply -f k8s/rbac.yaml
+#
+# **ここが多層防御の最後の 1 枚である。** 第3層 (OPA) が許可しても、人間が policy_override で
+# 承認しても、ここに無い権限は実行できない。第3層は「エージェントの自己申告」を評価しているが
+# （phase3 N-01）、ここはクラスタが観測した事実に対して効く。
+#
+#   namespace | 参照 | patch deployments(+scale) | delete pods | delete pvc
+#   ----------|------|---------------------------|-------------|------------
+#   dev       |  ○   |             ○             |      ○      |     ×
+#   staging   |  ○   |             ○             |      ○      |     ×
+#   prod      |  ○   |             ○             |      ×      |     ×
+#   その他     |  ×   |             ×             |      ×      |     ×
+#
+# **PVC の削除はどの環境でも与えない。** 第3層の PROHIBIT_PVC_DELETE と意図的に重ねる（R-01）。
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: sre-system}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: sre-agent, namespace: sre-system}
+---
+# k8s 1.24 以降、ServiceAccount に紐づく Secret は自動生成されない。
+# kubectl create token は短命（既定 1 時間）で、**検証中に失効すると RBAC 403 と
+# 区別がつかない失敗**になるため、明示的に長命トークンの Secret を作る（未決事項2）。
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sre-agent-token
+  namespace: sre-system
+  annotations: {kubernetes.io/service-account.name: sre-agent}
+type: kubernetes.io/service-account-token
+---
+# ── 参照（全環境） ────────────────────────────────────
+# node はクラスタスコープなので ClusterRole でしか与えられない。
+# TargetResource は node にも namespace を要求するが、API 側では無視される（限界として記録する）。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: sre-agent-read-nodes}
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: sre-agent-read-nodes}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: sre-agent-read-nodes}
+subjects: [{kind: ServiceAccount, name: sre-agent, namespace: sre-system}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: sre-agent-read}
+rules:
+  - apiGroups: [""]
+    resources: [pods, persistentvolumeclaims, events]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets]
+    verbs: [get, list]
+---
+# ── 変更（全環境）: rollout restart と scale ────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: sre-agent-mutate}
+rules:
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets]
+    verbs: [patch]
+  - apiGroups: [apps]
+    resources: [deployments/scale, statefulsets/scale]
+    verbs: [get, patch]
+---
+# ── Pod の削除（staging / dev のみ。prod には与えない） ──
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: sre-agent-delete-pod}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [delete]
+---
+# ── 束ね方: ClusterRole を namespace ごとに RoleBinding で絞る ──
+# ClusterRole + RoleBinding なので、権限が及ぶのは**その namespace の中だけ**である。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: sre-agent-read, namespace: prod}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: sre-agent-read}
+subjects: [{kind: ServiceAccount, name: sre-agent, namespace: sre-system}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: sre-agent-mutate, namespace: prod}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: sre-agent-mutate}
+subjects: [{kind: ServiceAccount, name: sre-agent, namespace: sre-system}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: sre-agent-read, namespace: staging}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: sre-agent-read}
+subjects: [{kind: ServiceAccount, name: sre-agent, namespace: sre-system}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: sre-agent-mutate, namespace: staging}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: sre-agent-mutate}
+subjects: [{kind: ServiceAccount, name: sre-agent, namespace: sre-system}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: sre-agent-delete-pod, namespace: staging}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: sre-agent-delete-pod}
+subjects: [{kind: ServiceAccount, name: sre-agent, namespace: sre-system}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: sre-agent-read, namespace: dev}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: sre-agent-read}
+subjects: [{kind: ServiceAccount, name: sre-agent, namespace: sre-system}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: sre-agent-mutate, namespace: dev}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: sre-agent-mutate}
+subjects: [{kind: ServiceAccount, name: sre-agent, namespace: sre-system}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: sre-agent-delete-pod, namespace: dev}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: sre-agent-delete-pod}
+subjects: [{kind: ServiceAccount, name: sre-agent, namespace: sre-system}]

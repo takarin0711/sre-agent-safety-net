@@ -1,0 +1,15 @@
+# kind の API サーバ監査ログのポリシー（phase5 design.md 6 章 / 未決事項8）。
+#
+# 目的は 1 つだけ: **403 が RBAC によるものであることを層の外側から裏取りする**こと。
+# Metadata レベルで `authorization.k8s.io/decision` と `.../reason` のアノテーションが出る。
+# RequestResponse は要らない（本文を残すと assets に貼れないデータが増える）。
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages:
+  - RequestReceived
+rules:
+  # エージェントの ServiceAccount の要求だけを記録する。
+  # 全部記録すると kubelet とコントローラのノイズで埋まり、エビデンスとして使えない。
+  - level: Metadata
+    users: ["system:serviceaccount:sre-system:sre-agent"]
+  - level: None

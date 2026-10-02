@@ -1,0 +1,35 @@
+# Phase 5 Z-05 異常系: **第1層が全滅する**構成。primary も fallback も障害注入サーバに向ける。
+#
+#   LITELLM_CONFIG_FILE=config.fault_all.yaml FAULT_MODE=server_error docker compose up -d --force-recreate litellm
+#
+# config.fault.yaml は fallback を実 Bedrock のままにしており、
+# 「primary だけが落ちる」構成だった（Phase 1 の F-01〜F-03）。
+# Z-05 が見たいのは**どの経路も成功しないとき何が人間に届くか**であり、
+# そのためには fallback も落ちている必要がある。
+#
+# agents/ は一切変更しない。読み込む設定ファイルを切り替えるだけで全滅を作る。
+# （Phase 1 の N-01 はアカウント設定起因の偶発的な全滅しか観測できておらず、
+#   正式な構成としては未実施のまま残っていた。この config はその穴も埋める）
+
+model_list:
+  - model_name: sre-agent-model
+    litellm_params:
+      model: openai/fault-injector
+      api_base: http://fault-injector:8080/v1
+      api_key: dummy-key-not-used
+    model_info:
+      id: primary-fault-injector
+
+  - model_name: sre-agent-model-fallback
+    litellm_params:
+      model: openai/fault-injector
+      api_base: http://fault-injector:8080/v1
+      api_key: dummy-key-not-used
+    model_info:
+      id: fallback-fault-injector
+
+router_settings:
+  fallbacks: [{ "sre-agent-model": ["sre-agent-model-fallback"] }]
+  num_retries: 0
+  timeout: 30
+  allowed_fails: 2

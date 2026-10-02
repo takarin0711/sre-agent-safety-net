@@ -1,0 +1,172 @@
+# 検証用のワークロード（phase5 design.md 3.10）。
+#
+#   kubectl apply -f k8s/workloads.yaml
+#
+# **namespace は opa/data.json の environment_namespaces と一致させる。**
+# 食い違わせると第3層の REQUIRE_NAMESPACE_ENVIRONMENT_MATCH が常時発火して検証にならない。
+#
+#   production -> prod / staging -> staging / development -> dev
+#
+# イメージはダイジェストまで固定する（ノードイメージと同じ規律）。
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prod
+  labels: {sre-safety-net/environment: production}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: staging
+  labels: {sre-safety-net/environment: staging}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+  labels: {sre-safety-net/environment: development}
+---
+# ── prod ──────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-api
+  namespace: prod
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: payment-api}}
+  template:
+    metadata:
+      labels: {app: payment-api}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: app
+          image: registry.k8s.io/e2e-test-images/busybox@sha256:0ffbe172f8d245c83f285c6992b452c53d085661e03ddfd3b484332026e6c8bb
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "while true; do echo \"$(date -Iseconds) payment-api heartbeat\"; sleep 15; done"]
+          resources: {requests: {cpu: 5m, memory: 8Mi}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: payment-data
+  namespace: prod
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 64Mi}}
+---
+# ── staging ───────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-api
+  namespace: staging
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: payment-api}}
+  template:
+    metadata:
+      labels: {app: payment-api}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: app
+          image: registry.k8s.io/e2e-test-images/busybox@sha256:0ffbe172f8d245c83f285c6992b452c53d085661e03ddfd3b484332026e6c8bb
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "while true; do echo \"$(date -Iseconds) payment-api heartbeat\"; sleep 15; done"]
+          resources: {requests: {cpu: 5m, memory: 8Mi}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: payment-data
+  namespace: staging
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 64Mi}}
+---
+# ── dev ───────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-api
+  namespace: dev
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: payment-api}}
+  template:
+    metadata:
+      labels: {app: payment-api}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: app
+          image: registry.k8s.io/e2e-test-images/busybox@sha256:0ffbe172f8d245c83f285c6992b452c53d085661e03ddfd3b484332026e6c8bb
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "while true; do echo \"$(date -Iseconds) payment-api heartbeat\"; sleep 15; done"]
+          resources: {requests: {cpu: 5m, memory: 8Mi}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: payment-data
+  namespace: dev
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: {requests: {storage: 64Mi}}
+---
+# 削除シナリオ用の**名前が固定された** Pod。Deployment の Pod は名前が毎回変わるため、
+# fixture（tests/fixtures/phase5/）から決定的に指名できない。
+# 消したあとは `kubectl apply -f k8s/workloads.yaml` で戻せる。
+apiVersion: v1
+kind: Pod
+metadata:
+  name: payment-worker
+  namespace: prod
+  labels: {app: payment-worker}
+spec:
+  terminationGracePeriodSeconds: 1
+  containers:
+    - name: app
+      image: registry.k8s.io/e2e-test-images/busybox@sha256:0ffbe172f8d245c83f285c6992b452c53d085661e03ddfd3b484332026e6c8bb
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c", "while true; do echo \"$(date -Iseconds) payment-worker heartbeat\"; sleep 15; done"]
+      resources: {requests: {cpu: 5m, memory: 8Mi}}
+---
+# 削除シナリオ用の**名前が固定された** Pod。Deployment の Pod は名前が毎回変わるため、
+# fixture（tests/fixtures/phase5/）から決定的に指名できない。
+# 消したあとは `kubectl apply -f k8s/workloads.yaml` で戻せる。
+apiVersion: v1
+kind: Pod
+metadata:
+  name: payment-worker
+  namespace: staging
+  labels: {app: payment-worker}
+spec:
+  terminationGracePeriodSeconds: 1
+  containers:
+    - name: app
+      image: registry.k8s.io/e2e-test-images/busybox@sha256:0ffbe172f8d245c83f285c6992b452c53d085661e03ddfd3b484332026e6c8bb
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c", "while true; do echo \"$(date -Iseconds) payment-worker heartbeat\"; sleep 15; done"]
+      resources: {requests: {cpu: 5m, memory: 8Mi}}
+---
+# 削除シナリオ用の**名前が固定された** Pod。Deployment の Pod は名前が毎回変わるため、
+# fixture（tests/fixtures/phase5/）から決定的に指名できない。
+# 消したあとは `kubectl apply -f k8s/workloads.yaml` で戻せる。
+apiVersion: v1
+kind: Pod
+metadata:
+  name: payment-worker
+  namespace: dev
+  labels: {app: payment-worker}
+spec:
+  terminationGracePeriodSeconds: 1
+  containers:
+    - name: app
+      image: registry.k8s.io/e2e-test-images/busybox@sha256:0ffbe172f8d245c83f285c6992b452c53d085661e03ddfd3b484332026e6c8bb
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c", "while true; do echo \"$(date -Iseconds) payment-worker heartbeat\"; sleep 15; done"]
+      resources: {requests: {cpu: 5m, memory: 8Mi}}

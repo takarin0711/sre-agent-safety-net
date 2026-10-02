@@ -40,12 +40,18 @@ class HandoffStatus(StrEnum):
 
     PENDING = "pending"
     APPROVED = "approved"
+    # Phase 5 で追加。**既存の値の意味は変えない**（phase5 design.md 3.5）。
+    # これが無いと executor が実行中に落ちたとき approved のまま残り、再起動で**再実行される**。
+    EXECUTING = "executing"
     EXECUTED = "executed"
     REJECTED = "rejected"
     EXPIRED = "expired"
     STALE = "stale"
     NOTIFY_FAILED = "notify_failed"
     EXECUTION_FAILED = "execution_failed"
+    # Phase 5 で追加。実行を**試みたあと**に人間が中止したもの。
+    # REJECTED（実行を試みていない状態での却下）と混ぜない。実行の有無は監査上の別事実である。
+    ABANDONED = "abandoned"
     UNKNOWN = "unknown"
 
 
@@ -56,10 +62,17 @@ TERMINAL_STATUSES = frozenset(
         HandoffStatus.REJECTED,
         HandoffStatus.EXPIRED,
         HandoffStatus.STALE,
-        HandoffStatus.EXECUTION_FAILED,
+        HandoffStatus.ABANDONED,
         HandoffStatus.UNKNOWN,
     }
 )
+
+# 実行を試みた結果の失敗のうち、**人間が再試行を選べる**もの。
+# UNKNOWN はここに入らない。実行有無が分からないものに再試行ボタンを出すのは、
+# 評価不能なものに承認ボタンを出すのと同じ誤りである（D-028）。
+RETRYABLE_STATUSES = frozenset({HandoffStatus.EXECUTION_FAILED})
+
+DEFAULT_MAX_RETRIES = 3
 
 
 class StateConflict(RuntimeError):
@@ -89,8 +102,12 @@ class PendingAction:
     expires_at: datetime
     approved_by: str | None
     approved_at: datetime | None
+    # 実行を**開始した**時刻。executed_at（成功時のみ立てる）と分ける。
+    # Phase 4 は execution_failed にも executed_at が立っていた（phase4 考察11）。
+    execution_started_at: datetime | None
     executed_at: datetime | None
     execution_result: str | None
+    retry_count: int
 
 
 _SCHEMA = """
@@ -105,8 +122,10 @@ CREATE TABLE IF NOT EXISTS pending_actions (
   expires_at       TEXT NOT NULL,
   approved_by      TEXT,
   approved_at      TEXT,
+  execution_started_at TEXT,
   executed_at      TEXT,
-  execution_result TEXT
+  execution_result TEXT,
+  retry_count      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_pending_status_expires
   ON pending_actions (status, expires_at);
@@ -145,6 +164,22 @@ class Store:
             self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Phase 4 に作られた既存ファイルへ Phase 5 の列を足す。
+
+        **黙って作り直さない。** 監査記録は運用ステートより寿命が長い（phase4 design.md 3.5.1）ので、
+        スキーマが変わったからといって捨ててよいものではない。
+        """
+        existing = {row["name"] for row in conn.execute("PRAGMA table_info(pending_actions)")}
+        for column, ddl in (
+            ("execution_started_at", "TEXT"),
+            ("retry_count", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if column not in existing:
+                conn.execute(f"ALTER TABLE pending_actions ADD COLUMN {column} {ddl}")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -166,6 +201,23 @@ class Store:
 
         逆順にすると「通知はあるがストアに無い」＝押しても何も起きない状態が作れる。
         """
+        return self.create_entry(trace_id=trace_id, kind=kind, event_json=event_json, ttl_seconds=ttl_seconds)
+
+    def create_entry(
+        self,
+        *,
+        trace_id: str,
+        kind: str,
+        event_json: str,
+        status: HandoffStatus = HandoffStatus.PENDING,
+        ttl_seconds: int | None = None,
+    ) -> PendingAction:
+        """エントリを 1 件作る。
+
+        Phase 4 は ``pending`` しか作らなかった（承認待ちだけがストアに入る）。
+        Phase 5 では**自律経路の実行失敗**もエントリを持つ（phase5 design.md 3.7）。
+        不変条件は「ストアにエントリがあるのは**人間の操作を待つもの**だけ」に一般化される。
+        """
         ttl = ttl_seconds if ttl_seconds is not None else _ttl_from_env()
         created = now()
         with self._connect() as conn:
@@ -176,7 +228,7 @@ class Store:
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     trace_id,
-                    HandoffStatus.PENDING.value,
+                    status.value,
                     kind,
                     event_json,
                     _iso(created),
@@ -184,7 +236,7 @@ class Store:
                 ),
             )
             conn.execute("COMMIT")
-        self.audit(trace_id, action="created", detail=f"ttl={ttl}s")
+        self.audit(trace_id, action="created", detail=f"ttl={ttl}s status={status.value}")
         row = self.get(trace_id)
         if row is None:  # pragma: no cover - INSERT 直後に消えることはない
             raise RuntimeError(f"{trace_id}: 作成直後のレコードが見つかりません")
@@ -241,28 +293,107 @@ class Store:
         self.audit(trace_id, action="stale", actor=actor, detail=detail)
         return row
 
-    def mark_executed(self, trace_id: str, result: str) -> PendingAction:
-        """approved -> executed。**成功時にのみ** executed_at を立てる（冪等性の要）。"""
+    def claim_for_execution(self, trace_id: str) -> PendingAction:
+        """approved -> executing。**実行に取りかかる前に**占有する（D-027）。
+
+        これが実行側の排他である。複数の executor が同時に拾っても、
+        更新件数が 1 になるのは 1 プロセスだけ。
+        ``execution_started_at`` をここで立てる（実行の**開始**時刻であり、完了時刻ではない）。
+        """
         return self._transition(
             trace_id,
             expected=HandoffStatus.APPROVED,
+            new=HandoffStatus.EXECUTING,
+            extra="execution_started_at = ?",
+            params=(_iso(now()),),
+        )
+
+    def mark_executed(self, trace_id: str, result: str) -> PendingAction:
+        """executing -> executed。**成功時にのみ** executed_at を立てる（冪等性の要）。"""
+        return self._transition(
+            trace_id,
+            expected=HandoffStatus.EXECUTING,
             new=HandoffStatus.EXECUTED,
             extra="executed_at = ?, execution_result = ?",
             params=(_iso(now()), result),
         )
 
     def mark_execution_failed(self, trace_id: str, detail: str) -> PendingAction:
-        """approved -> execution_failed。**実行を試みて確定的に失敗した**場合のみ。
+        """executing -> execution_failed。**実行されていないことが確定している**失敗のみ。
 
-        実行されたかどうかが分からない場合はここではなく UNKNOWN に倒す（3.5.1）。
+        ``executed_at`` は立てない（実行していないため）。試行時刻は
+        ``execution_started_at`` にある。実行されたかどうかが分からない場合は
+        ここではなく ``mark_unknown()`` に倒す（D-028）。
         """
         return self._transition(
             trace_id,
-            expected=HandoffStatus.APPROVED,
+            expected=HandoffStatus.EXECUTING,
             new=HandoffStatus.EXECUTION_FAILED,
-            extra="executed_at = ?, execution_result = ?",
-            params=(_iso(now()), detail),
+            extra="execution_result = ?",
+            params=(detail,),
         )
+
+    def mark_unknown(self, trace_id: str, detail: str) -> PendingAction:
+        """executing -> unknown。**実行されたかどうかが分からない**（D-028）。
+
+        ``executed_at`` を立てない。立てると「実行した」と読めてしまい、
+        分類した意味が消える。**終端であり、自動でも手動でも再試行させない。**
+        """
+        return self._transition(
+            trace_id,
+            expected=HandoffStatus.EXECUTING,
+            new=HandoffStatus.UNKNOWN,
+            extra="execution_result = ?",
+            params=(detail,),
+        )
+
+    def retry(self, trace_id: str, *, actor: str, max_retries: int | None = None) -> PendingAction:
+        """execution_failed -> approved。人間が押したときだけ呼ぶ（自動再試行はしない）。
+
+        **実行内容は復元し直す。** ここで変えるのは ``status`` と ``retry_count`` だけであり、
+        ``event_json`` には触れない（運用原則4「再試行の同一性」）。
+        """
+        limit = max_retries if max_retries is not None else _max_retries_from_env()
+        row = self.get(trace_id)
+        if row is not None and row.retry_count >= limit:
+            raise StateConflict(trace_id, HandoffStatus.EXECUTION_FAILED, f"retry_exhausted({row.retry_count})")
+        updated = self._transition(
+            trace_id,
+            expected=HandoffStatus.EXECUTION_FAILED,
+            new=HandoffStatus.APPROVED,
+            extra="retry_count = retry_count + 1, approved_by = ?, approved_at = ?, execution_started_at = NULL",
+            params=(actor, _iso(now())),
+        )
+        self.audit(trace_id, action="retry", actor=actor, detail=f"retry_count={updated.retry_count}")
+        return updated
+
+    def abandon(self, trace_id: str, *, actor: str) -> PendingAction:
+        """execution_failed -> abandoned。**実行を試みたあとの**中止であり、却下とは別の事実。"""
+        row = self._transition(
+            trace_id,
+            expected=HandoffStatus.EXECUTION_FAILED,
+            new=HandoffStatus.ABANDONED,
+        )
+        self.audit(trace_id, action="abandon", actor=actor)
+        return row
+
+    def recover_executing(self, detail: str) -> list[PendingAction]:
+        """``executing`` のまま残っているものを ``unknown`` に倒す（executor の起動時に呼ぶ）。
+
+        「実行を開始した記録はあるが結果が無い」＝定義どおり実行有無が不明である。
+        **approved に戻して再実行してはならない。** それが二重実行の典型的な作り方になる。
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT trace_id FROM pending_actions WHERE status = ?",
+                (HandoffStatus.EXECUTING.value,),
+            ).fetchall()
+        recovered = []
+        for row in rows:
+            trace_id = row["trace_id"]
+            recovered.append(self.mark_unknown(trace_id, detail))
+            self.audit(trace_id, action="recovered_unknown", detail=detail)
+        return recovered
 
     def audit(
         self,
@@ -303,6 +434,15 @@ class Store:
                 "SELECT * FROM pending_actions WHERE status = ? AND expires_at <= ? "
                 "ORDER BY expires_at",
                 (HandoffStatus.PENDING.value, _iso(at or now())),
+            ).fetchall()
+        return [_to_action(row) for row in rows]
+
+    def due_for_execution(self, limit: int = 20) -> list[PendingAction]:
+        """実行待ち（``approved``）を古い順に列挙する。executor が走査する。"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM pending_actions WHERE status = ? ORDER BY approved_at LIMIT ?",
+                (HandoffStatus.APPROVED.value, limit),
             ).fetchall()
         return [_to_action(row) for row in rows]
 
@@ -388,8 +528,10 @@ def _to_action(row: sqlite3.Row) -> PendingAction:
         expires_at=datetime.fromisoformat(row["expires_at"]),
         approved_by=row["approved_by"],
         approved_at=_parse(row["approved_at"]),
+        execution_started_at=_parse(row["execution_started_at"]),
         executed_at=_parse(row["executed_at"]),
         execution_result=row["execution_result"],
+        retry_count=row["retry_count"] or 0,
     )
 
 
@@ -419,6 +561,17 @@ def _ttl_from_env() -> int:
     raw = os.environ.get("SLACK_APPROVAL_TTL_SECONDS")
     # 設定ミスを黙って既定値に落とさない（例外は握り潰さないのが本 PoC の規律）。
     return DEFAULT_TTL_SECONDS if not raw else int(raw)
+
+
+def _max_retries_from_env() -> int:
+    raw = os.environ.get("EXECUTION_MAX_RETRIES")
+    return DEFAULT_MAX_RETRIES if not raw else int(raw)
+
+
+def can_retry(action: PendingAction, *, max_retries: int | None = None) -> bool:
+    """**再試行ボタンを出してよいか。** 通知層はこの関数だけを見る（分岐を増やさない）。"""
+    limit = max_retries if max_retries is not None else _max_retries_from_env()
+    return HandoffStatus(action.status) in RETRYABLE_STATUSES and action.retry_count < limit
 
 
 def _toctou_from_env() -> int:

@@ -43,10 +43,27 @@ RAW_OUTPUT_PREVIEW = 1200
 
 ACTION_ID_APPROVE = "approve_action"
 ACTION_ID_REJECT = "reject_action"
+# Phase 5。実行層の失敗に対する操作（通知パターン5）。
+ACTION_ID_RETRY = "retry_action"
+ACTION_ID_ABANDON = "abandon_action"
 
 # 承認期限の表示タイムゾーン。PoC の運用者が日本にいる前提。
 # 実運用では閲覧者のロケールに合わせるか、Slack の日付フォーマット（<!date^...>）を使う。
 DISPLAY_TZ = ZoneInfo("Asia/Tokyo")
+
+
+@dataclass(frozen=True)
+class NotificationContext:
+    """**ストアが持っている事実**のうち、表示とボタンの有無に要るものだけ。
+
+    blocks.py は環境変数も TTL も再試行上限も読まない。読むと「表示した値」と
+    「ストアが判定に使う値」が別々に決まって食い違う（phase4 考察2 で実機で踏んだ）。
+    """
+
+    expires_at: datetime | None = None
+    # 再試行ボタンを出してよいか。判定は store.can_retry() が持つ（design.md 3.6）。
+    retryable: bool = False
+    retry_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -103,11 +120,17 @@ def describe_action(action: ProposedAction) -> str:
     """提案アクションを 1 行で表す。
 
     **操作ごとのテンプレート（``kubectl delete pvc ...`` のような文字列）を持たない。**
-    理由は 2 つある:
+    理由は 3 つある:
 
     1. 操作の種別で分岐すると、ポリシーの語彙が通知層に漏れる（D-021）。
-    2. 本 PoC は実際にシェルコマンドを発行しない。発行しないコマンド文字列を
-       人間に見せると、実行されるものについて誤った印象を与える。
+    2. 発行しないコマンド文字列を人間に見せると、実行されるものについて誤った印象を与える。
+    3. **Phase 5 以降、実行層はコマンドを組み立てていない**（D-030）。実際に飛ぶのは
+       Kubernetes API の呼び出しであり、``kubectl`` の行はどこにも存在しない。
+       表示すれば実行の近似ですらなく、通知層が創作した文字列になる。
+
+    ただしこの整形は**可読性を捨てている**。取り戻すなら、通知層にテンプレートを置くのではなく
+    **実行層側に描画関数を 1 つ置いて、ここはそれを呼ぶだけにする**
+    （phase5 result.md 提言9）。実行を組み立てる場所が描画も持てば、表示と実行がずれない。
     """
     target = action.target
     replicas = "" if action.replicas is None else f" replicas={action.replicas}"
@@ -261,10 +284,108 @@ def _policy_unavailable(event: EscalationEvent) -> Notification:
     return Notification(text=f"[CRITICAL] 第3層が評価不能です（{event.trace_id}）", blocks=blocks)
 
 
+def _execution_elements(trace_id: str, action: ProposedAction | None, retryable: bool) -> list[dict]:
+    """パターン5 のボタン。**出す条件はステートだけ**（design.md 3.6 / D-021）。
+
+    操作の種別・環境・危険度では分岐しない。confirm は承認ボタンと同じく一律で付ける。
+    """
+    target = (
+        f"{action.environment.value} の {action.target.kind}/{action.target.name}"
+        if action
+        else "対象不明"
+    )
+    elements: list[dict] = []
+    if retryable:
+        elements.append(
+            {
+                "type": "button",
+                "action_id": ACTION_ID_RETRY,
+                "text": {"type": "plain_text", "text": truncate("再試行する", BUTTON_TEXT_LIMIT), "emoji": True},
+                "style": "danger",
+                "value": truncate(trace_id, BUTTON_VALUE_LIMIT),
+                "confirm": {
+                    "title": {"type": "plain_text", "text": truncate("もう一度実行しますか？", CONFIRM_TITLE_LIMIT)},
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": truncate(f"*{target}* に対する操作を再実行します。", CONFIRM_TEXT_LIMIT),
+                    },
+                    "confirm": {"type": "plain_text", "text": "再実行する"},
+                    "deny": {"type": "plain_text", "text": "キャンセル"},
+                },
+            }
+        )
+    elements.append(
+        {
+            "type": "button",
+            "action_id": ACTION_ID_ABANDON,
+            "text": {"type": "plain_text", "text": truncate("これ以上試さない", BUTTON_TEXT_LIMIT), "emoji": True},
+            "value": truncate(trace_id, BUTTON_VALUE_LIMIT),
+        }
+    )
+    return elements
+
+
+def _execution_failed(event: EscalationEvent, ctx: NotificationContext) -> Notification:
+    """通知パターン5（確定的な失敗）。**実行されていないことが分かっている**場合。"""
+    env = event.action.environment.value if event.action else "unknown"
+    blocks = [
+        _header("⚠️ [HIGH] 実行に失敗しました（操作は実行されていません）"),
+        _fields(
+            [
+                ("対象環境", f"`{env}`"),
+                ("Trace ID", f"`{event.trace_id}`"),
+                ("応答", f"`{event.http_status or '(応答以外の確定失敗)'}`"),
+                ("再試行回数", f"`{ctx.retry_count}`"),
+            ]
+        ),
+        _section(f"*失敗の内容:*\n{event.reason}"),
+        *_action_blocks(event.action),
+        _context(
+            "💡 サーバが要求を**処理しなかった**ことが応答から分かっています"
+            "（クラスタの状態は変わっていません）。原因を取り除いてから再試行してください。"
+        ),
+        {"type": "actions", "elements": _execution_elements(event.trace_id, event.action, ctx.retryable)},
+    ]
+    return Notification(text=f"[HIGH] 実行に失敗しました（{event.trace_id}）", blocks=blocks)
+
+
+def _execution_unknown(event: EscalationEvent) -> Notification:
+    """通知パターン5（実行有無が不明）。**ボタンを出さない**（D-028）。
+
+    これはパターン4 でボタンを出さないのとまったく同じ規律である。
+    評価できていないものに承認ボタンを出さないように、
+    **実行されたか分からないものに再試行ボタンを出さない。**
+    """
+    env = event.action.environment.value if event.action else "unknown"
+    blocks = [
+        _header("🚨 [CRITICAL] 実行されたかどうかが判別できません"),
+        _fields(
+            [
+                ("対象環境", f"`{env}`"),
+                ("Trace ID", f"`{event.trace_id}`"),
+                ("応答", f"`{event.http_status or '応答なし'}`"),
+                ("判定", "`unknown (実行有無が不明)`"),
+            ]
+        ),
+        _section(f"*状況:*\n{event.reason}"),
+        *_action_blocks(event.action),
+        _context(
+            "💡 *クラスタの実際の状態を人間が確認してください。* "
+            "要求はサーバに届いた可能性があり、結果は保証されていません。"
+            "**再試行ボタンは出していません**（実行済みのものを再実行すると二重実行になるため）。"
+        ),
+    ]
+    return Notification(text=f"[CRITICAL] 実行の有無が不明です（{event.trace_id}）", blocks=blocks)
+
+
+# kind -> 通知パターンの対応を知っているのはこの表だけである。
+# **ボタンが出るかどうかも、この 1 本道でしか決まらない。**
 _BUILDERS = {
-    "validation_failed": _validation_failed,
-    "policy_denied": _policy_denied,
-    "policy_unavailable": _policy_unavailable,
+    "validation_failed": lambda e, ctx: _validation_failed(e),
+    "policy_denied": lambda e, ctx: _policy_denied(e, ctx.expires_at),
+    "policy_unavailable": lambda e, ctx: _policy_unavailable(e),
+    "execution_failed": _execution_failed,
+    "execution_unknown": lambda e, ctx: _execution_unknown(e),
 }
 
 
@@ -286,7 +407,11 @@ def _thread_blocks(event: EscalationEvent) -> list[dict]:
 
 
 def build_notification(
-    event: EscalationEvent, *, expires_at: datetime | None = None
+    event: EscalationEvent,
+    *,
+    expires_at: datetime | None = None,
+    retryable: bool = False,
+    retry_count: int = 0,
 ) -> Notification:
     """EscalationEvent から送出物を組み立てる。**マスキングはここで必ず適用される。**
 
@@ -296,10 +421,8 @@ def build_notification(
     （design.md 確認事項11）ので、引数で受け取る。ここで環境変数から TTL を読むと、
     「表示した期限」と「ストアが判定に使う期限」が別々に決まって食い違いうる。
     """
-    builder = _BUILDERS[event.kind]
-    notification = (
-        builder(event, expires_at) if event.kind == "policy_denied" else builder(event)
-    )
+    ctx = NotificationContext(expires_at=expires_at, retryable=retryable, retry_count=retry_count)
+    notification = _BUILDERS[event.kind](event, ctx)
     return Notification(
         text=mask(notification.text),
         blocks=_mask_blocks(notification.blocks)[:MAX_BLOCKS],

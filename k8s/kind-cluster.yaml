@@ -1,0 +1,43 @@
+# 検証用クラスタ（phase5 design.md 3.10 / D-026）。
+#
+#   kind create cluster --config k8s/kind-cluster.yaml
+#   kind delete cluster --name sre-safety-net      # ← これで丸ごと消せることが D-026 の前提
+#
+# **ノードイメージはダイジェストまで固定する。** OPA を 1.21.0 に固定したのと同じ規律
+# （検証の再現性。latest を使わない）。この値は kind v0.33.0 の既定イメージ。
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: sre-safety-net
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+    extraMounts:
+      # 監査ポリシーと監査ログ。ホスト側の var/audit に出す（var/ は gitignore 済み）。
+      - hostPath: ./k8s/audit-policy.yaml
+        containerPath: /etc/kubernetes/audit-policy.yaml
+        readOnly: true
+      - hostPath: ./var/audit
+        containerPath: /var/log/kubernetes
+    kubeadmConfigPatches:
+      # k8s 1.31 以降の kubeadm は v1beta4 で、extraArgs は **map ではなくリスト**になった。
+      - |
+        kind: ClusterConfiguration
+        apiServer:
+          extraArgs:
+            - name: audit-policy-file
+              value: /etc/kubernetes/audit-policy.yaml
+            - name: audit-log-path
+              value: /var/log/kubernetes/audit.log
+            - name: audit-log-maxage
+              value: "1"
+          extraVolumes:
+            - name: audit-policy
+              hostPath: /etc/kubernetes/audit-policy.yaml
+              mountPath: /etc/kubernetes/audit-policy.yaml
+              readOnly: true
+              pathType: File
+            - name: audit-log
+              hostPath: /var/log/kubernetes
+              mountPath: /var/log/kubernetes
+              readOnly: false
+              pathType: DirectoryOrCreate

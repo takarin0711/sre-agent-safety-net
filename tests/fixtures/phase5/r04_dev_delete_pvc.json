@@ -1,0 +1,1 @@
+{"action_id": "act-r04", "environment": "development", "operation": "kubectl_delete_pvc", "target": {"kind": "pvc", "name": "payment-data", "namespace": "dev"}, "reason": "開発環境の PVC が壊れているため削除して作り直したい", "dry_run": false}

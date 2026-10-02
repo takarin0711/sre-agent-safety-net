@@ -25,6 +25,13 @@ _SLACK_ENV = (
     "SLACK_APPROVAL_TTL_SECONDS",
     "SLACK_TOCTOU_SECONDS",
     "SLACK_TIMEOUT_SECONDS",
+    # Phase 5。**テストが実クラスタに触れないようにする。** 開発者のシェルに
+    # K8S_KUBECONFIG が残っていると、単体テストが kind へ実際に API を発行しうる。
+    "K8S_KUBECONFIG",
+    "K8S_CONTEXT",
+    "EXECUTION_TIMEOUT_SECONDS",
+    "EXECUTION_MAX_RETRIES",
+    "EXECUTOR_POLL_SECONDS",
 )
 
 

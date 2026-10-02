@@ -68,6 +68,20 @@ def client() -> FakeSlack:
     return FakeSlack()
 
 
+def drain(store, client):
+    """受信のあとに実行プロセスを 1 周回す。
+
+    **Phase 5 で承認と実行は別プロセスになった**（D-027）。G 系が確かめているのは
+    「検証を通らない要求が実行に至らないこと」「再送があっても実行は 1 回だけ」であり、
+    それはプロセスの分け方に依らないシステムの性質である。受信だけを見て終えると、
+    分離したことで検証範囲が狭まってしまう。
+    """
+    from agents import executor
+    from tests.fakes import FakeApis
+
+    return executor.run_once(store=store, apis=FakeApis(), client=client)
+
+
 def app_with(client: FakeSlack, *, signature_verification: bool = True):
     # token_verification_enabled=True だと Bolt は起動時に 1 回だけ auth.test を行い、
     # 結果を使い回す（False にするとリクエストごとに実 Slack へ飛ぶ）。
@@ -80,6 +94,9 @@ def app_with(client: FakeSlack, *, signature_verification: bool = True):
 def test_g01_valid_signature_is_processed(store, client):
     response = app_with(client).dispatch(signed_request(block_actions_payload(TRACE), secret=SECRET))
     assert response.status == 200
+    # 受信プロセスが進めるのはここまで。**実行はしない**（D-027）。
+    assert store.get(TRACE).status == HandoffStatus.APPROVED
+    drain(store, client)
     assert store.get(TRACE).status == HandoffStatus.EXECUTED
     assert "chat_update" in client.methods()
 
@@ -147,6 +164,7 @@ def test_g05_without_verification_the_tampered_payload_is_executed(store, client
         signed_request(original, secret=SECRET, tamper_with=tampered)
     )
     assert response.status == 200
+    drain(store, client)
     assert store.get(OTHER_TRACE).status == HandoffStatus.EXECUTED  # 改変した側が実行された
     assert store.get(TRACE).status == HandoffStatus.PENDING
 
@@ -167,11 +185,16 @@ def test_g06_slack_retry_executes_only_once(store, client):
 
     assert first.status == 200
     assert second.status == 200  # 再送は異常ではない。Slack 側の正常な動作である
+    # 2 回届いても承認は 1 回しか成立していない（ストアの CAS で弾いた）
+    audit = [entry["action"] for entry in store.audit_entries(TRACE)]
+    assert audit.count("approve") == 1
+    assert "lock_conflict" in audit
+
+    drain(store, client)
     row = store.get(TRACE)
     assert row.status == HandoffStatus.EXECUTED
     audit = [entry["action"] for entry in store.audit_entries(TRACE)]
     assert audit.count("execute") == 1
-    assert "lock_conflict" in audit
     # 2 回目は本人にだけ「処理済み」と返す
     assert "chat_postEphemeral" in client.methods()
 

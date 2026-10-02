@@ -1,0 +1,1 @@
+{"action_id": "act-r01", "environment": "production", "operation": "kubectl_delete_pvc", "target": {"kind": "pvc", "name": "payment-data", "namespace": "prod"}, "reason": "本番の決済 API が PVC の容量不足で起動できないため、PVC を削除して作り直したい", "dry_run": false}

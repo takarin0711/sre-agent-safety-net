@@ -141,3 +141,104 @@ def unsigned_request(payload: dict) -> BoltRequest:
     """署名ヘッダが無いリクエスト（G-02）。"""
     body = "payload=" + urllib.parse.quote(json.dumps(payload))
     return BoltRequest(body=body, headers={"content-type": ["application/x-www-form-urlencoded"]})
+
+
+# ── Phase 5: 実行層のフェイク ──────────────────────────────
+#
+# **実クラスタにも kind にも触れない。** 判定基準1（単体はクラスタ無しで決定的に回ること）
+# を Phase 4 と同じ形で守る。実機の確認は K 系より後の R / Z / X 系で行う。
+
+
+class _Obj:
+    """属性アクセスだけできる軽量なスタブ（API オブジェクトの代用）。"""
+
+    def __init__(self, **kwargs: object) -> None:
+        self.__dict__.update(kwargs)
+
+
+class FakeK8sError(Exception):
+    """FakeApis に仕込む例外のマーカー（テストが意図した経路を通ったことの確認用）。"""
+
+
+class _FakeApi:
+    """呼び出しを記録し、仕込まれた例外を投げるだけの API クライアント。"""
+
+    def __init__(self, recorder: list, raises: Exception | None = None) -> None:
+        self._recorder = recorder
+        self._raises = raises
+
+    def _record(self, method: str, args: tuple, kwargs: dict) -> None:
+        self._recorder.append((method, args, kwargs))
+        if self._raises is not None:
+            raise self._raises
+
+    # 参照系
+    def read_namespaced_pod(self, name, namespace, **kw):
+        self._record("read_namespaced_pod", (name, namespace), kw)
+        return _Obj(status=_Obj(phase="Running"), metadata=_Obj(uid="uid-fake"))
+
+    def read_namespaced_persistent_volume_claim(self, name, namespace, **kw):
+        self._record("read_namespaced_persistent_volume_claim", (name, namespace), kw)
+        return _Obj(status=_Obj(phase="Bound"))
+
+    def read_node(self, name, **kw):
+        self._record("read_node", (name,), kw)
+        return _Obj(metadata=_Obj(name=name))
+
+    def read_namespaced_pod_log(self, name, namespace, **kw):
+        self._record("read_namespaced_pod_log", (name, namespace), kw)
+        return "line-1\nline-2\n"
+
+    def list_namespaced_event(self, namespace, **kw):
+        self._record("list_namespaced_event", (namespace,), kw)
+        return _Obj(items=[])
+
+    def read_namespaced_deployment(self, name, namespace, **kw):
+        self._record("read_namespaced_deployment", (name, namespace), kw)
+        return _Obj(metadata=_Obj(generation=1), spec=_Obj(replicas=1))
+
+    def read_namespaced_stateful_set(self, name, namespace, **kw):
+        self._record("read_namespaced_stateful_set", (name, namespace), kw)
+        return _Obj(metadata=_Obj(generation=1), spec=_Obj(replicas=1))
+
+    # 変更系
+    def patch_namespaced_deployment(self, name, namespace, body, **kw):
+        self._record("patch_namespaced_deployment", (name, namespace, body), kw)
+        return _Obj(metadata=_Obj(generation=2))
+
+    def patch_namespaced_stateful_set(self, name, namespace, body, **kw):
+        self._record("patch_namespaced_stateful_set", (name, namespace, body), kw)
+        return _Obj(metadata=_Obj(generation=2))
+
+    def patch_namespaced_deployment_scale(self, name, namespace, body, **kw):
+        self._record("patch_namespaced_deployment_scale", (name, namespace, body), kw)
+        return _Obj(spec=_Obj(replicas=body["spec"]["replicas"]))
+
+    def patch_namespaced_stateful_set_scale(self, name, namespace, body, **kw):
+        self._record("patch_namespaced_stateful_set_scale", (name, namespace, body), kw)
+        return _Obj(spec=_Obj(replicas=body["spec"]["replicas"]))
+
+    # 破壊系
+    def delete_namespaced_pod(self, name, namespace, **kw):
+        self._record("delete_namespaced_pod", (name, namespace), kw)
+
+    def delete_namespaced_persistent_volume_claim(self, name, namespace, **kw):
+        self._record("delete_namespaced_persistent_volume_claim", (name, namespace), kw)
+
+
+class FakeApis:
+    """``agents.k8s.Apis`` と同じ形。``raises`` を渡すと全呼び出しがその例外を投げる。"""
+
+    def __init__(self, raises: Exception | None = None) -> None:
+        self.calls: list[tuple[str, tuple, dict]] = []
+        self.core = _FakeApi(self.calls, raises)
+        self.apps = _FakeApi(self.calls, raises)
+
+    @property
+    def methods(self) -> list[str]:
+        return [name for name, _, _ in self.calls]
+
+    def last(self) -> tuple[str, tuple, dict]:
+        if not self.calls:
+            raise AssertionError("API は 1 度も呼ばれていない")
+        return self.calls[-1]
