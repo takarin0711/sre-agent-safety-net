@@ -1,0 +1,16 @@
+172.20.0.3 - - [05/Oct/2026 06:49:21] "GET /v1/models HTTP/1.1" 200 -
+172.20.0.3 - - [05/Oct/2026 06:49:21] "GET /v1/models HTTP/1.1" 200 -
+172.20.0.3 - - [05/Oct/2026 06:49:38] "POST /v1/chat/completions HTTP/1.1" 500 -
+172.20.0.3 - - [05/Oct/2026 06:49:38] "POST /v1/chat/completions HTTP/1.1" 500 -
+172.20.0.3 - - [05/Oct/2026 06:49:39] "POST /v1/chat/completions HTTP/1.1" 500 -
+172.20.0.3 - - [05/Oct/2026 06:49:39] "POST /v1/chat/completions HTTP/1.1" 500 -
+172.20.0.3 - - [05/Oct/2026 06:49:40] "POST /v1/chat/completions HTTP/1.1" 500 -
+172.20.0.3 - - [05/Oct/2026 06:49:40] "POST /v1/chat/completions HTTP/1.1" 500 -
+192.168.65.1 - - [05/Oct/2026 06:49:40] "POST /conversations.open HTTP/1.1" 500 -
+172.20.0.3 - - [05/Oct/2026 06:50:04] "POST /v1/chat/completions HTTP/1.1" 500 -
+172.20.0.3 - - [05/Oct/2026 06:50:04] "POST /v1/chat/completions HTTP/1.1" 500 -
+172.20.0.3 - - [05/Oct/2026 06:50:04] "POST /v1/chat/completions HTTP/1.1" 500 -
+172.20.0.3 - - [05/Oct/2026 06:50:04] "POST /v1/chat/completions HTTP/1.1" 500 -
+172.20.0.3 - - [05/Oct/2026 06:50:05] "POST /v1/chat/completions HTTP/1.1" 500 -
+172.20.0.3 - - [05/Oct/2026 06:50:05] "POST /v1/chat/completions HTTP/1.1" 500 -
+192.168.65.1 - - [05/Oct/2026 06:50:05] "POST /chat.postMessage HTTP/1.1" 500 -

@@ -1,0 +1,56 @@
+# 第1層が**自分で**アラートを出す構成。通知パターン1 の本来の担い手を実際に動かす。
+#
+#   PORT=8090 python mocks/webhook_sink.py &   # 送り先（実 Slack を汚さない）
+#   LITELLM_CONFIG_FILE=config.alerting.yaml FAULT_MODE=server_error \
+#     SLACK_WEBHOOK_URL=http://host.docker.internal:8090/webhook \
+#     docker compose up -d --force-recreate litellm
+#
+# model_list は config.fault_all.yaml と同じ（primary も fallback も障害注入サーバに向ける）。
+# alerting は障害が無ければ発火しないため、**全滅構成でないと観測できない**。
+#
+# config.yaml 側には入れない。Phase 1 のベースラインを変えると、
+# あのときの観測が「alerting 無しの構成で得たもの」であることを後から言えなくなる。
+# 実運用で入れるなら、下の general_settings.alerting 以降をそのまま config.yaml に足す。
+#
+# エージェント側の代替通知（kind=request_failed。D-031）とは**排他ではない**。
+# 受け手も粒度も違う: こちらは基盤の運用通知、あちらはインシデント 1 件の処理結果。
+
+model_list:
+  - model_name: sre-agent-model
+    litellm_params:
+      model: openai/fault-injector
+      api_base: http://fault-injector:8080/v1
+      api_key: dummy-key-not-used
+    model_info:
+      id: primary-fault-injector
+
+  - model_name: sre-agent-model-fallback
+    litellm_params:
+      model: openai/fault-injector
+      api_base: http://fault-injector:8080/v1
+      api_key: dummy-key-not-used
+    model_info:
+      id: fallback-fault-injector
+
+router_settings:
+  fallbacks: [{ "sre-agent-model": ["sre-agent-model-fallback"] }]
+  num_retries: 0
+  timeout: 30
+  allowed_fails: 2
+  cooldown_time: 30
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+  # 送り先は SLACK_WEBHOOK_URL（環境変数）。config には URL を書かない。
+  alerting: ["slack"]
+  # 「遅い」の閾値（秒）。llm_too_slow / llm_requests_hanging が使う。
+  # ここでは llm_exceptions を見たいので既定より短くしておく。
+  alerting_threshold: 10
+  # **出す種類を明示する。** 既定に任せると、観測したいもの以外も混ざる。
+  alert_types:
+    - llm_exceptions        # 呼び出しが例外で終わった
+    - cooldown_deployment   # デプロイが cooldown に入った（allowed_fails 超過）
+    - outage_alerts         # 1 デプロイの障害
+    - region_outage_alerts  # 複数デプロイ＝地理圏の障害（D-003 の障害単位）
+    - fallback_reports      # フォールバックの発生状況

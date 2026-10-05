@@ -1,10 +1,11 @@
 """ハンドオフ経路の単体検証（design.md 3.9 / E 系の単体側）。
 
-実機の E 系（Slack 不達）の前に、ここで次の 3 点を決定的に固める。
+実機の E 系（Slack 不達）の前に、ここで次の 4 点を決定的に固める。
 
 1. **承認待ちとしてストアに入るのは ``policy_denied`` だけ**（design.md 2.2）
 2. **送出の失敗が握り潰されない**（終了コード 5 の材料になる。D-022）
 3. **Phase 1〜3 の構造化ログが 1 バイトも変わっていない**
+4. **第1層が落ちても人間に届く**（通知パターン1 の代替。D-031）
 
 Slack には触れない。``notifier.build_client`` をフェイクに差し替えて経路だけを通す。
 """
@@ -13,12 +14,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
+import httpx
 import pytest
+from openai import APIConnectionError
 from pydantic_core import ValidationError
 from slack_sdk.errors import SlackApiError
 
-from agents import escalation
+from agents import escalation, main
 from agents.policy import build_denied_event, build_unavailable_event
 from agents.schemas import PolicyDecision, ViolatedRule
 from agents.validation import validate_action
@@ -212,3 +216,89 @@ def test_dm_resolution_is_cached(monkeypatch, slack):
             trace_id=trace,
         )
     assert [name for name, _ in slack.api_calls].count("conversations_open") == 1
+
+
+# ── 第1層の失敗が人間に届くこと（通知パターン1 の代替。D-031）──────
+
+
+class UnreachableLiteLLM:
+    """第1層が全滅した状態（Z-05）。SDK は APIConnectionError を送出する。
+
+    OpenAI クライアントのうち、``call_llm()`` が実際に触る経路だけを再現する。
+    """
+
+    class _Raw:
+        @staticmethod
+        def create(**kwargs):
+            raise APIConnectionError(request=httpx.Request("POST", "http://localhost:4000/"))
+
+    def __init__(self) -> None:
+        self.chat = SimpleNamespace(completions=SimpleNamespace(with_raw_response=self._Raw()))
+
+
+INCIDENT = "本番の payment-api の Pod が CrashLoopBackOff"
+
+
+def _escalated_trace(lines: list[dict]) -> str:
+    return next(line["trace_id"] for line in lines if line["event"] == "request.escalated")
+
+
+def test_layer1_failure_reaches_a_human(slack, capsys):
+    """**第1層が落ちているとき、それを人間に伝えられる層は他に無い。**"""
+    code = main.call_incident_once(UnreachableLiteLLM(), INCIDENT, 1)
+
+    assert code == 1  # 終了コードは分けない（実行していないことは確定している）
+    # 本体 + 全文のスレッド返信（運用原則1）。本体は要約、例外の全文はスレッドに回る。
+    assert [name for name, _ in slack.api_calls] == ["chat_postMessage", "chat_postMessage"]
+    body, thread = (kwargs for _, kwargs in slack.api_calls)
+    assert "thread_ts" not in body
+    assert thread["thread_ts"] == "1700000000.000100"
+
+    dumped = json.dumps(body["blocks"], ensure_ascii=False)
+    for required in ("第1層", "APIConnectionError", INCIDENT, _escalated_trace(emitted(capsys))):
+        assert required in dumped, required
+
+
+def test_layer1_failure_creates_no_store_entry(slack, capsys):
+    """承認できるものが無い。ストアに入れない（ストア = 人間の操作を待つもの）。"""
+    main.call_incident_once(UnreachableLiteLLM(), INCIDENT, 1)
+    assert Store().get(_escalated_trace(emitted(capsys))) is None
+
+
+def test_layer1_failure_keeps_the_phase1_log_line_unchanged(slack, capsys):
+    """Phase 1 の ``request.error`` に手を入れない。送出は**別の行**として足す。
+
+    ここが崩れると Phase 1 の assets と比較できなくなり、過去の判定が再現できない。
+    """
+    main.call_incident_once(UnreachableLiteLLM(), INCIDENT, 1)
+
+    lines = emitted(capsys)
+    assert [line["event"] for line in lines] == [
+        "request.start",
+        "request.error",
+        "request.escalated",
+        "slack.notified",
+    ]
+    error_line = lines[1]
+    # Phase 1 の時点のキー構成。増やしても減らしてもいけない。
+    assert set(error_line) == {
+        "event",
+        "trace_id",
+        "request_id",
+        "attempt",
+        "elapsed_sec",
+        "error_type",
+        "error",
+    }
+
+
+def test_layer1_failure_that_cannot_be_delivered_becomes_exit_5(monkeypatch):
+    """届かなければ終了コード 5。**止まったことを誰も知らない**状態は最も危険（D-022）。"""
+    monkeypatch.setattr("slack.notifier.build_client", lambda: UnreachableSlack())
+    assert main.call_incident_once(UnreachableLiteLLM(), INCIDENT, 1) == 5
+
+
+def test_prompt_path_does_not_notify(slack):
+    """``--prompt`` 経路は通知しない。インシデントも Trace ID も無い（D-031）。"""
+    assert main.call_once(UnreachableLiteLLM(), "hello", 1) == 1
+    assert slack.api_calls == []

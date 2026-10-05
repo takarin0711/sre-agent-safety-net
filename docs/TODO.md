@@ -718,6 +718,57 @@ ReplicaSet が `7f95dcf454`(2/2) → `77cc5c5fb6`(2/2)、旧 RS は 0 にスケ�
 
 ---
 
+## 通知パターン1 の空白を埋める（2026-10-05）
+
+Phase 5 の Z-05 は「第1層を全滅させると Slack に 1 件も出ない」ことを記録した。
+その整理は「パターン1 は LiteLLM 自身の alerting の責務」だったが、
+**本 PoC は `general_settings.alerting` を一度も設定していない。**
+つまり別経路が担っていたのではなく、どこにも存在しない空白だった（[D-031](decisions.md)）。
+
+### やったこと
+
+- [x] `EscalationEvent.kind` に `request_failed` を追加（**パターン番号は増やさない**。
+      仕様書のパターン1 の**代替**と位置づける）
+- [x] `slack/blocks.py` に通知を 1 本（ボタン無し）。
+      **基盤の状態を書かない** — 書く材料が `RequestFailure`（例外の型と文字列）しか無い構造にした
+- [x] `agents/main.py` の `--incident` 経路で送出。`--prompt` 経路（Phase 1）では出さない
+- [x] `slack/preview.py --pattern 1`
+- [x] pytest を 220 → **231 件**に（11 件追加）。`kind` と `_BUILDERS` の網羅性検査を含む
+
+変えなかったもの: **終了コードは 1 のまま**（理由は [D-031](decisions.md) の「採らなかった案」）。
+`request.error` の構造化ログも 1 バイトも変えていない（送出は `request.escalated` として別の行に足した）。
+
+### 残っていること
+
+- [x] **Z-05 の再実行**（2026-10-05 完了）。trace `80185b6c-6e0a-4fe1-b6ba-52baa022eff7`。
+      **「1 件も出ない」→「1 件出る」**。終了コード 1 のまま、承認ボタン無し、ストア未登録、
+      クラスタ無変化（`generation` 1 / `resourceVersion` 607 / `uid` 一致）。
+      軽い版で実施（kind・executor・handler は使っていない）。
+      [result.md の追記](phases/phase5-e2e/result.md)、エビデンスは `assets/z05b-*`。
+      **本編の Z-05 の行は書き換えていない**
+- [x] **送出先も同時に落とす確認**（2026-10-05 完了。Z-05c）。`SLACK_API_BASE_URL` を injector に向け、
+      **DM 解決（`conversations.open`）と投稿（`chat.postMessage`）の両方で終了コード 5**。
+      エビデンスは `assets/z05c-*`
+- [ ] **`slack.failed` にどの Slack API で落ちたかが残っていない**（Z-05c で判明）。
+      DM 解決で落ちたのか投稿で落ちたのかが `detail` から区別できない
+- [ ] **届かなかった `request_failed` がどこにも永続化されない。** ストアにエントリを作らない設計の
+      裏返しで、記録が終了コードと標準出力しかない（パターン3 は `notify_failed` として残る）。
+      [result.md の追記](phases/phase5-e2e/result.md)を参照
+- [x] **LiteLLM の alerting を実際に動かした**（2026-10-05 完了。Z-05d）。
+      `litellm/config.alerting.yaml` + `mocks/webhook_sink.py` で本文を観測。
+      `llm_exceptions` / `outage_alerts` が飛ぶ。**両方あってよい**は裏づけが取れたが、
+      **`trace_id` が載らない / 集約される / マスキングを通らない**という 3 つの差が出た。
+      `config.yaml` には入れていない（運用の設計判断であり、PoC の判定ではない）
+- [ ] **alerting の本文がマスキングを通らない。** プロンプトの先頭 100 文字がそのまま載る。
+      LiteLLM 側で本文を加工できるかは未調査。**alerting を本番で入れる前に要検討**
+- [ ] **2 系統の通知を繋ぐ手がかりが時刻しかない。** LiteLLM に `trace_id` を
+      メタデータとして渡して本文に載せられるかは未調査（C-02 から持ち越し）
+- [ ] 障害中にインシデントが複数走ると件数だけ通知が出る（集約しない）。
+      実運用では問題になるが、PoC の判定には影響しない。
+      **再実行で実際にそうなった**（2 本流して Slack に 2 件）
+
+---
+
 ## 成果物に載せるべき論点（考察用のメモ）
 
 検証結果そのものより、提案として効くのはこちら。忘れないうちに記録しておく。

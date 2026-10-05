@@ -173,21 +173,27 @@ class EscalationEvent(BaseModel):
 
     ``kind`` と Handoff 仕様書の通知パターンの対応:
 
+    - ``request_failed``      第1層の呼び出しが失敗             → 通知パターン1 の**代替**
     - ``validation_failed``   第2層の ValidationError            → 通知パターン2
     - ``policy_denied``       第3層が allow: false（理由つき）   → 通知パターン3（承認ボタンあり）
     - ``policy_unavailable``  第3層が評価不能（Fail-Closed）     → 通知パターン4（ボタンなし）
     - ``execution_failed``    実行層が確定的に失敗（4xx 等）     → 通知パターン5（再試行ボタンあり）
     - ``execution_unknown``   **実行の有無が不明**（5xx / 無応答）→ 通知パターン5（**ボタンなし**）
 
-    最後の 2 つは Phase 5 で追加した（phase5 design.md 3.9 / D-028）。
+    ``execution_*`` の 2 つは Phase 5 で追加した（phase5 design.md 3.9 / D-028）。
     **1 つの kind にまとめない。** 「実行されていない」と「分からない」は、
     人間が次に取る行動が違う（前者は再試行、後者はクラスタの確認）。
+
+    ``request_failed`` は Phase 5 の後に追加した（D-031）。
+    **仕様書のパターン1（インフラ全滅アラート）そのものではなく、その代替である。**
+    言えるのは「このインシデントが処理されなかった」ことだけで、基盤がどう落ちたかは言えない。
     """
 
     model_config = LAYER2_MODEL_CONFIG
 
     layer: Literal["layer1_litellm", "layer2_json_validator", "layer3_opa", "execution"]
     kind: Literal[
+        "request_failed",
         "validation_failed",
         "policy_denied",
         "policy_unavailable",
@@ -198,7 +204,9 @@ class EscalationEvent(BaseModel):
     # Slack のボタン value に入るのもこの値だけである（Handoff 仕様書 運用原則2）。
     trace_id: str
     reason: str  # 人間が読んで判断できる文言
-    errors: list[dict] = Field(default_factory=list)  # ValidationError の内容（JSON 化可能な形）
+    # 失敗の構造化された詳細（JSON 化可能な形）。第2層は ValidationError の内容を、
+    # 第1層は送出された例外の型とメッセージを入れる。
+    errors: list[dict] = Field(default_factory=list)
     # 第3層の拒否で使う。承認対象のアクションをストアから復元できるだけの情報を載せる
     # （Handoff 仕様書 運用原則1・2）。第2層の失敗時は検証を通っていないので None。
     action: ProposedAction | None = None

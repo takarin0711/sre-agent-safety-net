@@ -112,6 +112,13 @@ K8S_PROXY_MODE=drop_response K8S_PROXY_UPSTREAM=$(cat var/kind-upstream.txt) \
 
 ```bash
 python -m slack.preview --pattern 3       # 通知パターンを 1 本送る (第1〜3層を起動せずに試せる)
+python -m slack.preview --pattern 1       # 第1層の失敗 (パターン1 の代替。D-031)
+
+# 第1層が自分でアラートを出す構成 (D-031 の比較対象。実 Slack ではなく受け口に送る)
+PORT=8090 python mocks/webhook_sink.py &
+LITELLM_CONFIG_FILE=config.alerting.yaml FAULT_MODE=server_error \
+  SLACK_WEBHOOK_URL=http://host.docker.internal:8090/webhook \
+  docker compose up -d --force-recreate litellm
 python -m slack.preview --dump --out docs/phases/phase4-slack/assets   # 送らずに JSON を保存
 python -m slack.readback                  # 送出したメッセージを読み戻す (届いたことの証拠。D-018)
 python -m slack.handler                   # Interactivity の受信 (常駐。ngrok の転送先)

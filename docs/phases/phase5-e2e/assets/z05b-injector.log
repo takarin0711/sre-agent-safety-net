@@ -1,0 +1,12 @@
+172.20.0.3 - - [05/Oct/2026 06:43:52] fault_mode=server_error path=/v1/chat/completions
+172.20.0.3 - - [05/Oct/2026 06:43:52] "POST /v1/chat/completions HTTP/1.1" 500 -
+172.20.0.3 - - [05/Oct/2026 06:43:52] fault_mode=server_error path=/v1/chat/completions
+172.20.0.3 - - [05/Oct/2026 06:43:52] "POST /v1/chat/completions HTTP/1.1" 500 -
+172.20.0.3 - - [05/Oct/2026 06:43:53] fault_mode=server_error path=/v1/chat/completions
+172.20.0.3 - - [05/Oct/2026 06:43:53] "POST /v1/chat/completions HTTP/1.1" 500 -
+172.20.0.3 - - [05/Oct/2026 06:43:53] fault_mode=server_error path=/v1/chat/completions
+172.20.0.3 - - [05/Oct/2026 06:43:53] "POST /v1/chat/completions HTTP/1.1" 500 -
+172.20.0.3 - - [05/Oct/2026 06:43:54] fault_mode=server_error path=/v1/chat/completions
+172.20.0.3 - - [05/Oct/2026 06:43:54] "POST /v1/chat/completions HTTP/1.1" 500 -
+172.20.0.3 - - [05/Oct/2026 06:43:54] fault_mode=server_error path=/v1/chat/completions
+172.20.0.3 - - [05/Oct/2026 06:43:54] "POST /v1/chat/completions HTTP/1.1" 500 -

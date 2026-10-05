@@ -16,7 +16,9 @@ LiteLLM Proxy 側の関心事とする。フェイルオーバーの有無によ
 --incident の終了コードは分岐を一意に表す（phase3 design.md 3.8）。
 
     0  allow: true → 実行層（dry-run）まで到達
-    1  第1層の呼び出し失敗、または第2層の ValidationError
+    1  第1層の呼び出し失敗（通知パターン1 の代替）、または第2層の ValidationError
+       （パターン2）。**どちらも Slack へ出す。** 分けていないのは、どちらも
+       「実行していないことが確定しており、重さが同じ」ためである（D-031）
     2  環境変数の設定不足
     3  第3層が allow: false（Handoff 仕様書の通知パターン3）
     4  第3層が評価不能・Fail-Closed（同 パターン4）
@@ -32,6 +34,7 @@ import os
 import sys
 import time
 import uuid
+from dataclasses import dataclass
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -46,6 +49,22 @@ from agents.validation import validate_action
 
 # エージェントから見える唯一のモデル名。実デプロイの解決は LiteLLM に委ねる。
 LOGICAL_MODEL = "sre-agent-model"
+
+LAYER1 = "layer1_litellm"
+
+
+@dataclass(frozen=True)
+class RequestFailure:
+    """第1層の呼び出しが失敗したときに、エージェントが**実際に持っている**情報。
+
+    これ以上のこと（どのデプロイが落ちたか・残りのリージョンが生きているか）は
+    LiteLLM の内側にあり、ここからは見えない。通知の文面をこの型だけから組み立てることで、
+    持っていない情報を書けない構造にする（D-031）。
+    """
+
+    error_type: str
+    error: str
+
 
 # 終了コード。シナリオ実行スクリプトが分岐を一意に判定できるようにする。
 # 値が大きいほど重い（--repeat では最も重いものを返す）。
@@ -81,10 +100,11 @@ def call_llm(
     messages: list[dict[str, str]],
     attempt: int,
     trace_id: str | None = None,
-) -> tuple[str | None, bool]:
+) -> tuple[str | None, RequestFailure | None]:
     """1 リクエスト分の呼び出しとログ出力。
 
-    戻り値は (content, ok)。ok=False のときは第1層の呼び出し自体が失敗している。
+    戻り値は (content, failure)。failure が None でないときは第1層の呼び出し自体が
+    失敗している。**ログ出力は Phase 1 から 1 バイトも変えていない**（戻り値だけが増えた）。
 
     trace_id は --incident 経路でのみ渡す。--prompt 経路（Phase 1）のログ出力を
     1 バイトも変えないため、None のときはフィールドごと出さない。
@@ -112,7 +132,7 @@ def call_llm(
             error_type=type(exc).__name__,
             error=str(exc),
         )
-        return None, False
+        return None, RequestFailure(error_type=type(exc).__name__, error=str(exc))
 
     elapsed = round(time.monotonic() - started, 3)
     completion = raw.parse()
@@ -128,13 +148,17 @@ def call_llm(
         litellm_headers=litellm_headers(raw.headers),
         content_preview=(content or "")[:200],
     )
-    return content, True
+    return content, None
 
 
 def call_once(client: OpenAI, prompt: str, attempt: int) -> int:
-    """Phase 1 の経路。第2層を通さず、呼び出しの成否だけを見る。"""
-    _, ok = call_llm(client, [{"role": "user", "content": prompt}], attempt)
-    return 0 if ok else 1
+    """Phase 1 の経路。第2層を通さず、呼び出しの成否だけを見る。
+
+    **この経路では通知しない。** インシデントが無いので「何が処理されなかったか」を
+    書けず、Trace ID も発行していない（D-031）。
+    """
+    _, failure = call_llm(client, [{"role": "user", "content": prompt}], attempt)
+    return EXIT_OK if failure is None else EXIT_LAYER1_OR_2_FAILED
 
 
 def call_incident_once(
@@ -159,11 +183,26 @@ def _run_layers(
     client: OpenAI, incident: str, attempt: int, trace_id: str, *, skip_policy: bool
 ) -> int:
     """第1層 → 第2層 → 第3層 → 実行層。戻り値は送出の成否を含まない終了コード。"""
-    content, ok = call_llm(client, build_incident_messages(incident), attempt, trace_id)
-    if not ok:
-        # 第1層の全滅は通知パターン1 にあたるが、エージェントは「どのエンドポイントが
-        # どう落ちたか」を知らない。ここから組み立てると持っていない情報を推測することになる
-        # （design.md 3.13）。LiteLLM 自身の alerting の責務なので、ここでは通知しない。
+    content, failure = call_llm(client, build_incident_messages(incident), attempt, trace_id)
+    if failure is not None:
+        # 通知パターン1 の**代替**を出す（D-031）。「どのエンドポイントがどう落ちたか」は
+        # 依然として書けないが、「このインシデントが処理されなかった」ことは書ける。
+        # 第1層が落ちているとき、それを人間に伝えられる層は他に無い。
+        handoff = escalation.build_request_failed_event(
+            failure.error_type,
+            failure.error,
+            trace_id=trace_id,
+            original_request=incident,
+        )
+        # 他層と違い、既存の層のログ行（request.error）は call_llm が**既に出している**。
+        # Phase 1 のエビデンスを変えないため、そこには手を入れず別の行として足す。
+        escalation.escalate(
+            handoff,
+            event="request.escalated",
+            layer=LAYER1,
+            trace_id=trace_id,
+            escalation=handoff.model_dump(mode="json"),
+        )
         return EXIT_LAYER1_OR_2_FAILED
 
     try:

@@ -19,7 +19,7 @@ Phase 1〜5 はすべて完了済み。**現在地と残タスクは [docs/TODO.
 | --- | --- |
 | 現在地・残タスク | [docs/TODO.md](docs/TODO.md) |
 | 層の責務と層間インターフェース | [docs/architecture.md](docs/architecture.md) |
-| なぜこの構成なのか（D-001〜D-030） | [docs/decisions.md](docs/decisions.md) |
+| なぜこの構成なのか（D-001〜D-031） | [docs/decisions.md](docs/decisions.md) |
 | **過去に踏んだ失敗と検証の規律** | [docs/lessons.md](docs/lessons.md) |
 | コマンド全集（障害注入・kind・Slack） | [docs/commands.md](docs/commands.md) |
 | 各層の検証シナリオと判定基準 | `docs/phases/phaseN-*/design.md` |
@@ -88,6 +88,9 @@ pytest                            # 第2層の単体検証 + 層の境界の強�
 - **構造化出力の強制をベースラインに入れない**（[D-011](docs/decisions.md)）。壊れた入力が来ないと検知能力が測れない
 - プロンプトには**出力スキーマは書く**が、**「危険な操作を避けよ」は書かない**。
   書いた時点でその防御が確率的になる（第3層の責務。[D-002](docs/decisions.md)）
+- 第1層の失敗も Slack へ出す（通知パターン1 の**代替**。[D-031](docs/decisions.md)）。
+  ただし**基盤の状態を書かない。** 書いてよいのは「このインシデントが処理されなかった」ことだけで、
+  どのデプロイがどう落ちたかはエージェントから見えない
 
 ### 第3層
 

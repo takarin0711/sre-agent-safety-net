@@ -90,6 +90,9 @@
 Z-05 は `litellm/config.fault_all.yaml` を新設して実施した（primary も fallback も障害注入サーバに向ける）。
 **Phase 1 の N-01 は「両系が同一原因で落ちた偶発的な観測」しか残っていなかった**ため、この config はその穴も埋めている。
 
+> **2026-10-05 追記**: Z-05 の「1 件も出ない」は実装を変えて埋めた。上の表は当時の観測のまま残す。
+> 変更後の再実行は末尾の[追記](#追記-2026-10-05-z-05-の欠落を埋めた)を参照。
+
 ### 実行の異常系（X 系）
 
 | ID | 注入 | 結果 | クラスタ側 | 要点 |
@@ -361,3 +364,179 @@ Gatekeeper / Kyverno は Admission Controller として、**実際の API 要求
 - [ ] node（クラスタスコープ）に対して `namespace` が申告されるという非対称の整理
 - [ ] 承認画面の可読性（提言9）。実行層側の描画関数は未実装
 - [ ] 監査ログの外部保全、ポリシー bundle の署名検証（Phase 3・4 からの継続）
+
+---
+
+## 追記 (2026-10-05): Z-05 の欠落を埋めた
+
+**本編の判定は変えない。** Z-05 の「Slack に 1 件も出ない」は、2026-10-01 時点の実装に対する
+正しい観測である。ここに書くのは、その欠落を埋めるために実装を変えたあとの**別の観測**である。
+
+### なぜ埋めたか
+
+Z-05 の整理は「通知パターン1 は LiteLLM 自身の alerting の責務」だった（[phase4 design.md 3.13](../phase4-slack/design.md)）。
+しかし本 PoC は `general_settings.alerting` を一度も設定していない（C-02 は構成の比較どまり）。
+**別経路が担っていたのではなく、どこにも存在しない空白だった。**
+第1層の失敗時にエスカレーションを 1 件出すようにした（[D-031](../../decisions.md)）。
+通知パターン1 そのものではなく**その代替**であり、書けるのは
+「このインシデントが処理されなかった」ことだけで、基盤の状態は依然として書けない。
+
+### 再実行（軽い版）
+
+第1層で止まるため kind・`agents.executor`・`slack.handler` は使っていない。
+`litellm`（`config.fault_all.yaml`）と `fault-injector` のみ。
+
+```bash
+LITELLM_CONFIG_FILE=config.fault_all.yaml FAULT_MODE=server_error \
+  docker compose up -d --force-recreate litellm fault-injector
+python -m agents.main --incident "本番の payment-api の Pod が CrashLoopBackOff"; echo "exit=$?"
+```
+
+| 観測点 | 2026-10-01（本編 Z-05） | 2026-10-05（再実行） |
+| --- | --- | --- |
+| 終了コード | 1 | **1**（変えていない） |
+| `request.error` | 出る | **出る。キー構成も文面も同じ** |
+| Slack | **1 件も出ない** | **1 件出る**（`slack.notified` / `kind=request_failed`） |
+| 承認ボタン | — | **無い**（読み戻しで `has_actions: false`） |
+| ストア | 作られない | **作られない**（承認できるものが無い） |
+| クラスタ側 | 無変化 | **無変化**（`generation` 1 / `resourceVersion` 607 / `uid` 完全一致） |
+
+trace `80185b6c-6e0a-4fe1-b6ba-52baa022eff7`（[`z05b-agent.log`](assets/z05b-agent.log)）。
+注入が効いていることの確認は [`z05b-injector.log`](assets/z05b-injector.log)、
+届いたことの確認は [`z05b-readback.json`](assets/z05b-readback.json)（[D-018](../../decisions.md) の規律。
+「例外が出なかった」は届いた証拠にならない）。
+
+ログの差分は**挿入のみ**である。
+
+```
+  {"event": "request.start",  ...}        ← 同じ
+  {"event": "request.error",  ...}        ← 同じ（Phase 1 のエビデンスを変えていない）
++ {"event": "request.escalated", "layer": "layer1_litellm", ...}
++ {"event": "slack.notified", "kind": "request_failed", ...}
+  {"event": "run.finished", ...}          ← 同じ
+```
+
+### 再実行で分かったこと
+
+1. **`num_retries: 0` なのに、1 インシデントで injector に POST が 6 件届いていた**
+   （[`z05b-injector.log`](assets/z05b-injector.log)。2 本流して 6 件 × 2）。
+   内訳の機序は追っていない（primary / fallback の 2 系統に対して何がどう再試行されたのか）。
+   これは [Phase 1 の F-04](../phase1-litellm/result.md) で既に踏んだ
+   **「LiteLLM の自己申告と実際に叩かれた回数が一致しない」**の変奏であり、新発見ではない。
+   ここで意味があるのは**エージェント側の見え方**のほうで、ログは `attempt: 1` の 1 行しかない。
+   **第1層の中で何回叩かれたかはエージェントから見えない。**
+   [D-031](../../decisions.md) で「基盤の状態は書けない」とした根拠が、そのまま実測として出た形になる。
+2. **2 本流したら Slack に 2 件出た。** D-031 の「集約しない」が実際にそう振る舞う。
+   障害が続く間、インシデントの件数だけ通知が出る。
+3. **ストアは 1 行も増えていない。** 承認ボタンの無い通知がストアを汚さないという
+   Phase 4 の不変条件（「ストアにエントリがある」＝「人間の操作を待つもの」）は保たれている。
+
+### 送出も同時に落とす（Z-05c）
+
+第1層が全滅している最中に Slack も落ちていれば、代替通知も届かない。
+**その状態を終了コード 5 として表面化できるか**を確認した。
+
+注入は 2 つを同時にかける。どちらも同じ `mocks/fault_injector.py`（`FAULT_MODE=server_error`）が受ける。
+
+```bash
+LITELLM_CONFIG_FILE=config.fault_all.yaml FAULT_MODE=server_error \
+  docker compose up -d --force-recreate litellm
+SLACK_API_BASE_URL=http://localhost:8080/ \
+  python -m agents.main --incident "本番の payment-api の Pod が CrashLoopBackOff"; echo "exit=$?"
+```
+
+送出が落ちる場所は 2 箇所あるので、両方を踏んだ。
+
+| | 落ちた API | 終了コード | `slack.failed` |
+| --- | --- | --- | --- |
+| (a) `SLACK_CHANNEL_ID=U...`（DM 解決が先に走る） | `conversations.open` | **5** | `failure=api_error` / `layer=layer1_litellm` / `kind=request_failed` |
+| (b) `SLACK_CHANNEL_ID=C...`（DM 解決を飛ばす） | `chat.postMessage` | **5** | 同上 |
+
+[`z05c-agent.log`](assets/z05c-agent.log) / [`z05c-injector.log`](assets/z05c-injector.log)。
+injector のアクセスログに `POST /v1/chat/completions`・`POST /conversations.open`・
+`POST /chat.postMessage` が並んでおり、**2 つの注入が同時に効いていた**ことが 1 本のログで裏取りできる。
+
+**(a) は意図していなかった観測である。** 送出の失敗は `chat.postMessage` で起きると想定していたが、
+`SLACK_CHANNEL_ID` にユーザ ID を書く本 PoC の構成では、その手前の **DM 解決**で先に落ちる。
+どちらでも終了コード 5 になるが、`slack.failed` の `detail` だけを見ると区別がつかない
+（どちらも injector が返した同じ本文）。**「どの API で落ちたか」はログに残っていない。**
+
+### 分かったこと: 届かなかった記録の残り方が、パターン3 とは違う
+
+[Phase 4 の考察10](../phase4-slack/result.md) は「送出の失敗はエージェント側に **3 系統**で残る」と書いた
+（終了コード 5 / `event=slack.failed` / ストアの `notify_failed`）。
+`request_failed` ではこれが **2 系統**になる。
+
+- ストアにエントリを作らない（承認できるものが無いので、[D-031](../../decisions.md) の設計どおり）
+- したがって `mark_notify_failed()` も呼ばれない。実際、ストアは 40 行のまま 1 行も増えなかった
+
+**これは不具合ではないが、非対称である。** 第3層の deny が人間に届かなかった場合は
+ストアに `notify_failed` として**永続化**されるのに対し、第1層の失敗が届かなかった場合は
+**プロセスの終了コードと標準出力のログにしか残らない。**
+`--incident` を叩いた側が終了コードを捨てていれば、何も残らない。
+
+多層防御の最外周には、その外側が無い — という Phase 4 の結論が、第1層ではもう一段薄くなる。
+
+### 第1層自身の alerting を実際に動かした（Z-05d）
+
+[Phase 4 の C-02](../phase4-slack/result.md) は「LiteLLM Proxy には Slack alerting があり、
+設定すれば Proxy 自身が通知できる」と**構成の比較だけ**で終えていた。
+`trace_id` を載せられるかも未確認のままだった。本 PoC で一度も設定していないので、実際に動かした。
+
+実 Slack の Incoming Webhook は作らず、本文をそのまま記録する受け口
+（[`mocks/webhook_sink.py`](../../../mocks/webhook_sink.py)）に向けた。
+**何が送られるかを見るのが目的**であり、送出先がワークスペースである必要はない。
+
+```bash
+PORT=8090 python mocks/webhook_sink.py &
+LITELLM_CONFIG_FILE=config.alerting.yaml FAULT_MODE=server_error \
+  SLACK_WEBHOOK_URL=http://host.docker.internal:8090/webhook \
+  docker compose up -d --force-recreate litellm
+python -m agents.main --incident "..."
+```
+
+設定は [`litellm/config.alerting.yaml`](../../../litellm/config.alerting.yaml) に分けた
+（`config.yaml` には入れない。Phase 1 のベースラインを変えると、
+あのときの観測が「alerting 無しの構成で得たもの」だと後から言えなくなる）。
+
+#### 発火した（[`z05d-alerting-webhook.log`](assets/z05d-alerting-webhook.log)）
+
+| アラート | 内容 |
+| --- | --- |
+| `llm_exceptions` | `[Num Alerts: 4]` / `[Num Alerts: 2]` のように**まとめて**届く。Level: `High` |
+| `outage_alerts` | `⚠️ Minor Service Outage` / `Model Name: fault-injector` / `API Errors: 5` |
+
+#### 分かったこと
+
+1. **`trace_id` は載らない。** C-02 の未確認事項の回答がこれである。
+   アラート本文にあるのは `model_group` / `deployment` / `API Base` / 例外文字列だけで、
+   エージェントの相関 ID はどこにも現れない。**突き合わせはタイムスタンプで手作業になる。**
+2. **集約する。** `[Num Alerts: 4]` のとおり、1 回の webhook に複数の失敗がまとまる。
+   エージェント側の代替通知が**インシデント 1 件ごとに 1 通**なのと正反対であり、
+   [D-031](../../decisions.md) で「集約しない」を代替の限界として書いたことの裏返しが実測で出た。
+3. **プロンプトの先頭が載る。しかも通知層のマスキングを通らない。**
+   `Messages: [{'role': 'system', 'content': 'あなたは Kubernetes クラスタを運用する SRE …` が
+   100 文字で切られて入る。本 PoC では system prompt が長いためインシデント記述には届かなかったが、
+   **プロンプトが短ければ届く。** エージェント側の通知は [`slack/masking.py`](../../../slack/masking.py) を
+   必ず通る（`build_notification()` の中で適用される）のに対し、**この経路は通らない。**
+   秘匿情報の扱いが経路によって非対称になる。
+4. **両方同時に動く。** trace `a6d149ac-8eaf-45f3-92f4-b89b7bf0ad3b` では、
+   エージェントが `slack.notified`（代替通知）を出し、同じ障害について LiteLLM も
+   `llm_exceptions` / `outage_alerts` を出した（[`z05d-agent.log`](assets/z05d-agent.log)）。
+   **排他ではない**という [D-031](../../decisions.md) の整理はそのとおりだった。
+   ただし受け手から見ると、同じ事象の通知が 2 系統から来て**繋ぐ手がかりが時刻しかない。**
+
+#### この構成を既定にはしない
+
+`config.yaml` には入れていない。入れるかどうかは PoC の判定ではなく運用の設計判断であり、
+少なくとも上記 3（マスキングを通らない）を踏まえてからにすべきである。
+
+### 残っていること
+
+- [ ] `slack.failed` に「どの Slack API で落ちたか」が残っていない（上記 (a)/(b) が区別できない）
+- [ ] 届かなかった `request_failed` が**どこにも永続化されない**（ストアに入れないことの裏返し）
+- [ ] **alerting の本文がマスキングを通らない**（Z-05d の 3）。
+      LiteLLM 側で本文を加工する手段があるかは未調査
+- [ ] **2 系統の通知を繋ぐ手がかりが時刻しかない**（Z-05d の 1）。
+      LiteLLM に `trace_id` をメタデータとして渡して本文に載せられるかは未調査
+

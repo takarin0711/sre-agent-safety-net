@@ -1,6 +1,6 @@
 """ハンドオフ経路の 1 本化（design.md 3.1 / D-019）。
 
-第2層・第3層は、失敗を検知したら ``escalate()`` を呼ぶだけでよい。
+各層は、失敗を検知したら ``escalate()`` を呼ぶだけでよい。
 **各層は通知先を知らない。** Slack を別の通知層に差し替えても、層の実装は変わらない
 （architecture.md 設計原則2）。
 
@@ -48,6 +48,30 @@ def reset() -> None:
     """テスト用。台帳とフラグを初期化する。"""
     _failed_deliveries.clear()
     set_enabled(True)
+
+
+def build_request_failed_event(
+    error_type: str, error: str, *, trace_id: str, original_request: str
+) -> EscalationEvent:
+    """第1層の呼び出し失敗を人間に引き渡せる形に構造化する（通知パターン1 の**代替**）。
+
+    **仕様書のパターン1 そのものではない**（D-031）。エージェントが知っているのは
+    「このインシデントの呼び出しが失敗した」ことだけで、どのデプロイがどう落ちたかは
+    LiteLLM の内側にある。したがってここで書くのは**基盤の状態ではなく、
+    このインシデントが処理されなかったという事実**に限る。
+
+    ``action`` は ``None`` のまま。第2層にすら到達していないので提案は存在せず、
+    承認の対象にもならない（``_create_pending_if_approvable()`` がエントリを作らない）。
+    """
+    return EscalationEvent(
+        layer="layer1_litellm",
+        kind="request_failed",
+        trace_id=trace_id,
+        reason=f"第1層の呼び出しに失敗しました（{error_type}）。このインシデントは処理されていません",
+        errors=[{"error_type": error_type, "error": error}],
+        original_request=original_request,
+        occurred_at=datetime.now(UTC),
+    )
 
 
 def escalate(handoff: EscalationEvent, /, **log_fields: object) -> None:

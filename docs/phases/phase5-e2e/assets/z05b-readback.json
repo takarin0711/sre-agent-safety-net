@@ -1,0 +1,201 @@
+{
+  "channel": "D-CHANNEL",
+  "messages": [
+    {
+      "user": "U-BOT",
+      "type": "message",
+      "ts": "1791182649.506399",
+      "bot_id": "B-BOT",
+      "app_id": "<redacted:slack-app-id>",
+      "text": "[CRITICAL] 第1層に到達できずインシデントが処理されませんでした（c595c39b-590e-4a04-8447-bbafcba3cbdf）",
+      "team": "T-WORKSPACE",
+      "bot_profile": {
+        "id": "B-BOT",
+        "deleted": false,
+        "name": "SRE Safety Net Demo App",
+        "updated": 1790920453,
+        "app_id": "<redacted:slack-app-id>",
+        "user_id": "U-BOT",
+        "icons": {
+          "image_36": "https://a.slack-edge.com/img/bot.png",
+          "image_48": "https://a.slack-edge.com/img/bot.png",
+          "image_72": "https://a.slack-edge.com/img/bot.png"
+        },
+        "team_id": "T-WORKSPACE"
+      },
+      "thread_ts": "1791182649.506399",
+      "reply_count": 1,
+      "reply_users_count": 1,
+      "latest_reply": "1791182649.734349",
+      "reply_users": [
+        "U-BOT"
+      ],
+      "is_locked": false,
+      "subscribed": false,
+      "blocks": [
+        {
+          "type": "header",
+          "block_id": "2tHTJ",
+          "text": {
+            "type": "plain_text",
+            "text": ":rotating_light: [CRITICAL] インシデントが処理されませんでした (第1層に到達できません)",
+            "emoji": true
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "sQ94K",
+          "fields": [
+            {
+              "type": "mrkdwn",
+              "text": "*検知レイヤー:*\n`第1層 (LiteLLM Proxy)`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*Trace ID:*\n`c595c39b-590e-4a04-8447-bbafcba3cbdf`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*失敗種別:*\n`InternalServerError`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*処理の状態:*\n`未着手 (提案は生成されていません)`",
+              "verbatim": false
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "block_id": "yk8BQ",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*理由:*\n第1層の呼び出しに失敗しました（InternalServerError）。このインシデントは処理されていません",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "BVDHN",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*元のインシデント記述:*\n&gt;本番の payment-api の Pod が CrashLoopBackOff",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "4xVJC",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": ":bulb: *これは基盤障害そのもののアラートではありません。* エージェントが知っているのは「この 1 件が処理できなかった」ことだけで、どのデプロイがどう落ちたかは第1層の内側にあります（**集約もされません**。障害中にインシデントが複数走れば、その件数だけこの通知が出ます）。基盤の状態は LiteLLM 側のアラートとログで確認してください。",
+              "verbatim": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user": "U-BOT",
+      "type": "message",
+      "ts": "1791182634.696299",
+      "bot_id": "B-BOT",
+      "app_id": "<redacted:slack-app-id>",
+      "text": "[CRITICAL] 第1層に到達できずインシデントが処理されませんでした（80185b6c-6e0a-4fe1-b6ba-52baa022eff7）",
+      "team": "T-WORKSPACE",
+      "bot_profile": {
+        "id": "B-BOT",
+        "deleted": false,
+        "name": "SRE Safety Net Demo App",
+        "updated": 1790920453,
+        "app_id": "<redacted:slack-app-id>",
+        "user_id": "U-BOT",
+        "icons": {
+          "image_36": "https://a.slack-edge.com/img/bot.png",
+          "image_48": "https://a.slack-edge.com/img/bot.png",
+          "image_72": "https://a.slack-edge.com/img/bot.png"
+        },
+        "team_id": "T-WORKSPACE"
+      },
+      "thread_ts": "1791182634.696299",
+      "reply_count": 1,
+      "reply_users_count": 1,
+      "latest_reply": "1791182634.933379",
+      "reply_users": [
+        "U-BOT"
+      ],
+      "is_locked": false,
+      "subscribed": false,
+      "blocks": [
+        {
+          "type": "header",
+          "block_id": "C5ogb",
+          "text": {
+            "type": "plain_text",
+            "text": ":rotating_light: [CRITICAL] インシデントが処理されませんでした (第1層に到達できません)",
+            "emoji": true
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "Ul4uP",
+          "fields": [
+            {
+              "type": "mrkdwn",
+              "text": "*検知レイヤー:*\n`第1層 (LiteLLM Proxy)`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*Trace ID:*\n`80185b6c-6e0a-4fe1-b6ba-52baa022eff7`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*失敗種別:*\n`InternalServerError`",
+              "verbatim": false
+            },
+            {
+              "type": "mrkdwn",
+              "text": "*処理の状態:*\n`未着手 (提案は生成されていません)`",
+              "verbatim": false
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "block_id": "zRO6C",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*理由:*\n第1層の呼び出しに失敗しました（InternalServerError）。このインシデントは処理されていません",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "o4CFf",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*元のインシデント記述:*\n&gt;本番の payment-api の Pod が CrashLoopBackOff",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "7zPQx",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": ":bulb: *これは基盤障害そのもののアラートではありません。* エージェントが知っているのは「この 1 件が処理できなかった」ことだけで、どのデプロイがどう落ちたかは第1層の内側にあります（**集約もされません**。障害中にインシデントが複数走れば、その件数だけこの通知が出ます）。基盤の状態は LiteLLM 側のアラートとログで確認してください。",
+              "verbatim": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

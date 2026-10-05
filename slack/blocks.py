@@ -195,6 +195,43 @@ def _violation_section(event: EscalationEvent) -> list[dict]:
     return [_section(f"*違反したポリシー（{len(event.violated_rules)} 件）:*\n{lines}")]
 
 
+def _request_failed(event: EscalationEvent) -> Notification:
+    """通知パターン1 の**代替**。第1層の呼び出しが失敗し、処理が始まらなかった。
+
+    **仕様書のパターン1（インフラ全滅アラート）ではない**（D-031）。
+    文面に書いてよいのは「このインシデントが処理されなかった」ことだけで、
+    基盤がどう落ちているか・どのリージョンが生きているかは書かない。
+    エージェントはそれを知らず、書けば**持っていない情報を創作する**ことになる。
+
+    ボタンは出さない。提案そのものが存在しないので、承認できるものが無い。
+    """
+    detail = "、".join(str(e.get("error_type", "unknown")) for e in event.errors) or "unknown"
+    blocks = [
+        _header("🚨 [CRITICAL] インシデントが処理されませんでした (第1層に到達できません)"),
+        _fields(
+            [
+                ("検知レイヤー", "`第1層 (LiteLLM Proxy)`"),
+                ("Trace ID", f"`{event.trace_id}`"),
+                ("失敗種別", f"`{detail}`"),
+                ("処理の状態", "`未着手 (提案は生成されていません)`"),
+            ]
+        ),
+        _section(f"*理由:*\n{event.reason}"),
+        _section(f"*元のインシデント記述:*\n>{truncate(event.original_request, REASON_PREVIEW)}"),
+        _context(
+            "💡 *これは基盤障害そのもののアラートではありません。* "
+            "エージェントが知っているのは「この 1 件が処理できなかった」ことだけで、"
+            "どのデプロイがどう落ちたかは第1層の内側にあります（**集約もされません**。"
+            "障害中にインシデントが複数走れば、その件数だけこの通知が出ます）。"
+            "基盤の状態は LiteLLM 側のアラートとログで確認してください。"
+        ),
+    ]
+    return Notification(
+        text=f"[CRITICAL] 第1層に到達できずインシデントが処理されませんでした（{event.trace_id}）",
+        blocks=blocks,
+    )
+
+
 def _validation_failed(event: EscalationEvent) -> Notification:
     """通知パターン2。第2層の構造検証に失敗した。ボタンは出さない。"""
     types = "、".join(sorted({str(e.get("type", "unknown")) for e in event.errors})) or "unknown"
@@ -381,6 +418,7 @@ def _execution_unknown(event: EscalationEvent) -> Notification:
 # kind -> 通知パターンの対応を知っているのはこの表だけである。
 # **ボタンが出るかどうかも、この 1 本道でしか決まらない。**
 _BUILDERS = {
+    "request_failed": lambda e, ctx: _request_failed(e),
     "validation_failed": lambda e, ctx: _validation_failed(e),
     "policy_denied": lambda e, ctx: _policy_denied(e, ctx.expires_at),
     "policy_unavailable": lambda e, ctx: _policy_unavailable(e),
@@ -400,7 +438,9 @@ def _thread_blocks(event: EscalationEvent) -> list[dict]:
         blocks.append(_section(f"*Raw Output（全文）:*\n{_code_block(event.raw_output, SECTION_TEXT_LIMIT - 64)}"))
     if event.errors:
         dumped = json.dumps(event.errors, ensure_ascii=False, indent=2)
-        blocks.append(_section(f"*ValidationError の詳細:*\n{_code_block(dumped, SECTION_TEXT_LIMIT - 64)}"))
+        # 見出しは層の名前ではなくフィールドの中身で決める。``errors`` には第2層の
+        # ValidationError だけでなく、第1層の例外も入る（D-031）。
+        blocks.append(_section(f"*失敗の詳細（全文）:*\n{_code_block(dumped, SECTION_TEXT_LIMIT - 64)}"))
     if event.action and len(event.action.reason) > REASON_PREVIEW:
         blocks.append(_section(f"*AI の思考ログ（全文）:*\n>{truncate(event.action.reason, SECTION_TEXT_LIMIT - 8)}"))
     return blocks[:MAX_BLOCKS]

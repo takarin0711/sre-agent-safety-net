@@ -16,10 +16,12 @@ from pathlib import Path
 import pytest
 from pydantic_core import ValidationError
 
+from agents.escalation import build_request_failed_event
 from agents.policy import build_denied_event, build_unavailable_event
 from agents.schemas import EscalationEvent, PolicyDecision, ProposedAction, ViolatedRule
 from agents.validation import build_escalation_event, validate_action
 from slack.blocks import (
+    _BUILDERS,
     ACTION_ID_APPROVE,
     ACTION_ID_REJECT,
     HEADER_TEXT_LIMIT,
@@ -59,6 +61,16 @@ def unavailable_event() -> EscalationEvent:
     )
 
 
+def request_failed_event() -> EscalationEvent:
+    """第1層の呼び出しが失敗した状態（通知パターン1 の代替）。"""
+    return build_request_failed_event(
+        "APIConnectionError",
+        "Connection error.",
+        trace_id=TRACE,
+        original_request="本番が落ちた",
+    )
+
+
 def validation_failed_event(fixture: str = "v01_prose.txt") -> EscalationEvent:
     raw = (FIXTURES / fixture).read_text(encoding="utf-8")
     try:
@@ -87,6 +99,38 @@ def collect(blocks: list[dict], key: str) -> list:
         elif isinstance(item, list):
             stack.extend(item)
     return found
+
+
+# ── パターン1 の代替（D-031）──────────────────────────────
+
+
+def test_request_failed_has_no_buttons():
+    """提案が存在しない。承認できるものが無いのでボタンも無い。"""
+    notification = build_notification(request_failed_event())
+    assert "actions" not in block_types(notification.blocks)
+    assert collect(notification.blocks, "action_id") == []
+
+
+def test_request_failed_says_what_it_knows_and_nothing_more():
+    """**基盤の状態を書かない。** 書けるのは「この 1 件が処理されなかった」ことだけ。"""
+    notification = build_notification(request_failed_event())
+    dumped = json.dumps(notification.blocks, ensure_ascii=False)
+    for required in (TRACE, "第1層", "APIConnectionError", "本番が落ちた"):
+        assert required in dumped, required
+    # 提案も違反も存在しない。通知層が埋めて穴埋めしていないことの確認。
+    for absent in ("提案されたアクション", "違反したポリシー", "AI の思考ログ"):
+        assert absent not in dumped, absent
+    # 代替であることが読み手に分かる形で書かれている（パターン1 を騙らない）。
+    assert "基盤障害そのもののアラートではありません" in dumped
+
+
+def test_every_kind_has_exactly_one_builder():
+    """``kind`` を増やしたのにビルダーを足し忘れると KeyError で落ちる。
+
+    その KeyError は送出の直前に出る（＝**人間に届かない**）ので、ここで止める。
+    """
+    kinds = set(EscalationEvent.model_fields["kind"].annotation.__args__)  # type: ignore[union-attr]
+    assert set(_BUILDERS) == kinds
 
 
 # ── S-01 パターン2 ────────────────────────────────────────
@@ -136,7 +180,7 @@ def test_s04_policy_unavailable_has_no_buttons():
     assert "timeout" in json.dumps(notification.blocks, ensure_ascii=False)
 
 
-@pytest.mark.parametrize("builder", [validation_failed_event, unavailable_event])
+@pytest.mark.parametrize("builder", [request_failed_event, validation_failed_event, unavailable_event])
 def test_s04_only_policy_denied_is_approvable(builder):
     assert collect(build_notification(builder()).blocks, "action_id") == []
 
@@ -197,7 +241,8 @@ def test_s06_secrets_never_reach_the_payload():
 
 
 @pytest.mark.parametrize(
-    "builder", [validation_failed_event, lambda: denied_event(rules=3), unavailable_event]
+    "builder",
+    [request_failed_event, validation_failed_event, lambda: denied_event(rules=3), unavailable_event],
 )
 def test_s07_button_value_contains_only_trace_id(builder):
     """運用原則2。実行内容がペイロードに一切載らないことを機械的に確認する。"""
@@ -213,7 +258,8 @@ def test_s07_button_value_contains_only_trace_id(builder):
 
 
 @pytest.mark.parametrize(
-    "builder", [validation_failed_event, lambda: denied_event(rules=2), unavailable_event]
+    "builder",
+    [request_failed_event, validation_failed_event, lambda: denied_event(rules=2), unavailable_event],
 )
 def test_s08_structure_is_valid_block_kit(builder):
     notification = build_notification(builder())
@@ -273,7 +319,7 @@ def test_deadline_is_shown_only_on_the_approvable_pattern():
     assert "承認期限" in json.dumps(denied.blocks, ensure_ascii=False)
 
     # ボタンが無いパターンに期限は要らない（承認できないため）
-    for builder in (validation_failed_event, unavailable_event):
+    for builder in (request_failed_event, validation_failed_event, unavailable_event):
         assert "承認期限" not in json.dumps(build_notification(builder()).blocks, ensure_ascii=False)
 
 

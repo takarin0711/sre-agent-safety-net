@@ -67,7 +67,8 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 │   └── validation.py         #   第2層の唯一の入口 (validate_action)
 ├── litellm/                  # 第1層: LiteLLM Proxy 設定
 │   ├── config.yaml           #   正常系: Bedrock 2 リージョン
-│   └── config.fault.yaml     #   異常系: primary を障害注入サーバに差し替え
+│   ├── config.fault.yaml     #   異常系: primary を障害注入サーバに差し替え
+│   └── config.alerting.yaml  #   第1層が自分でアラートを出す構成 (D-031)
 ├── opa/                      # 第3層: OPA ポリシー
 │   ├── policy.rego
 │   └── policy_test.rego      # Rego 単体テスト
@@ -80,7 +81,8 @@ LLM は「たまに壊れた出力を返す」「たまに危険な操作を提�
 │   └── rbac.yaml             #   **最小権限。第3層が許可しても止める最後の 1 枚**
 ├── mocks/                    # 検証用の障害注入サーバ
 │   ├── fault_injector.py     #   第1層・第2層 (429 / 500 / timeout / malformed)
-│   └── k8s_proxy.py          #   実行層 (5xx / 応答の握り潰し / 無応答)
+│   ├── k8s_proxy.py          #   実行層 (5xx / 応答の握り潰し / 無応答)
+│   └── webhook_sink.py       #   第1層自身の alerting の受け口 (本文をそのまま記録する)
 ├── tests/                    # pytest (第2層の単体検証)
 │   ├── fixtures/             #   正常系 & 壊れた LLM 出力のケース集
 │   └── test_layer2_validation.py

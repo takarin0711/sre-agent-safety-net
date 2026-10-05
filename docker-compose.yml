@@ -30,6 +30,9 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      # 第1層が自分で出すアラートの送り先（config.alerting.yaml のときだけ参照される）。
+      # 未設定なら alerting は動かない。URL は config に書かない（秘密情報は .env のみ）。
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
     depends_on:
       - fault-injector
 

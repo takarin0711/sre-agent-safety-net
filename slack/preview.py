@@ -1,6 +1,6 @@
 """通知の実機確認用 CLI（design.md 8. 実施手順 1）。
 
-第1層〜第3層を起動せずに、通知パターン 2 / 3 / 4 をそのまま出せる。
+第1層〜第3層を起動せずに、通知パターン 1（代替）/ 2 / 3 / 4 をそのまま出せる。
 
     python -m slack.preview --dump            # JSON を標準出力へ（Slack に触れない）
     python -m slack.preview --dump --pattern 3 > docs/phases/phase4-slack/assets/s02.json
@@ -19,6 +19,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from agents.escalation import build_request_failed_event
 from agents.log import log
 from agents.policy import build_denied_event, build_unavailable_event
 from agents.schemas import EscalationEvent, PolicyDecision, ViolatedRule
@@ -39,6 +40,15 @@ def _action(name: str, trace_id: str):
 
 def sample_event(pattern: int, trace_id: str) -> EscalationEvent:
     """Phase 2・3 の fixture から、実際に層が出すのと同じ形のイベントを作る。"""
+    if pattern == 1:
+        # パターン1 の**代替**（D-031）。第1層が全滅したときに OpenAI SDK から出る
+        # 例外の型と文面をそのまま使う（Z-05 の実測に合わせる）。
+        return build_request_failed_event(
+            "APIConnectionError",
+            "Connection error.",
+            trace_id=trace_id,
+            original_request=INCIDENT,
+        )
     if pattern == 2:
         raw = (FIXTURES / "v01_prose.txt").read_text(encoding="utf-8")
         try:
@@ -85,7 +95,7 @@ def main() -> int:
     load_dotenv()
     parser = argparse.ArgumentParser(description="通知パターンのプレビュー")
     parser.add_argument(
-        "--pattern", type=int, choices=(2, 3, 4), help="省略時は 2 / 3 / 4 をすべて出す"
+        "--pattern", type=int, choices=(1, 2, 3, 4), help="省略時は 1 / 2 / 3 / 4 をすべて出す"
     )
     parser.add_argument("--dump", action="store_true", help="送らずに JSON を標準出力へ")
     parser.add_argument(
@@ -96,7 +106,7 @@ def main() -> int:
     parser.add_argument("--trace-id", default="preview", help="Trace ID の接頭辞")
     args = parser.parse_args()
 
-    patterns = [args.pattern] if args.pattern else [2, 3, 4]
+    patterns = [args.pattern] if args.pattern else [1, 2, 3, 4]
     for pattern in patterns:
         trace_id = f"{args.trace_id}-{pattern}"
         event = sample_event(pattern, trace_id)
