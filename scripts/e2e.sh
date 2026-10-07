@@ -54,13 +54,11 @@ snapshot() {
 
 # ── up ────────────────────────────────────────────────────────────────────────
 
-preflight() {
-  head1 "前提確認"
-  [ -x "$PY" ] || die ".venv がありません（python -m venv .venv && pip install -r requirements.txt）"
-  [ -f .env ]  || die ".env がありません"
-  ok "venv / .env"
-
-  # 第1層の資格情報。失効は ISO-8601(UTC) の辞書順で判定できる。
+# 第1層の資格情報。失効していても Bedrock の 403 としてしか現れず、
+# primary / fallback の両方が同じ資格情報を使うため「第1層の全滅」と
+# 見分けがつかない（実際に run で踏んだ）。層に届く前に落とす。
+# 失効は ISO-8601(UTC) の辞書順で判定できる。
+check_credentials() {
   local exp; exp="$(dotenv AWS_CREDENTIAL_EXPIRATION)"
   if [ -z "$exp" ]; then
     warn "AWS_CREDENTIAL_EXPIRATION が .env にありません"
@@ -72,6 +70,15 @@ preflight() {
   else
     ok "AWS クレデンシャル（${exp} まで）"
   fi
+}
+
+preflight() {
+  head1 "前提確認"
+  [ -x "$PY" ] || die ".venv がありません（python -m venv .venv && pip install -r requirements.txt）"
+  [ -f .env ]  || die ".env がありません"
+  ok "venv / .env"
+
+  check_credentials
 
   head1 "依存サービス"
   docker compose up -d >/dev/null
@@ -174,6 +181,7 @@ DEFAULT_INCIDENT="本番環境 prod の payment-api Deployment が応答不能�
 run() {
   alive handler  || die "handler が動いていません（./scripts/e2e.sh up）"
   alive executor || die "executor が動いていません（./scripts/e2e.sh up）"
+  check_credentials
   mkdir -p "$RUNDIR"
   local incident="${1:-$DEFAULT_INCIDENT}"
 
